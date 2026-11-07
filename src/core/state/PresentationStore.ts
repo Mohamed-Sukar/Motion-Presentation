@@ -6,6 +6,8 @@ import {
   SlideNode,
   TransitionSpec,
 } from '../domain/types';
+import { StagePlaybackEngine } from '../engine/StagePlaybackEngine';
+import { DemoGenerator } from '../services/DemoGenerator';
 import { FrameExtractor } from '../services/FrameExtractor';
 import { ProjectSerializer } from '../services/ProjectSerializer';
 import { SmartPairer } from '../services/SmartPairer';
@@ -198,6 +200,38 @@ export class PresentationStore {
     this.emit('structural');
   }
 
+  async applyVideoCuePointsWorkflow(
+    videoAsset: MediaAsset,
+    cueTimesSec: number[],
+    appendToExisting = false
+  ): Promise<SlideNode[]> {
+    const newSlides = await SmartPairer.buildSlidesFromVideoCuePoints(
+      videoAsset,
+      cueTimesSec,
+      this.project.settings.defaultFallbackStyle
+    );
+
+    this.batchUpdate(() => {
+      if (!appendToExisting) {
+        for (const slide of this.project.slides) {
+          safeRevokeUrl(slide.imageAsset.objectUrl);
+          const oldVideoUrl = slide.transitionToNext.videoAsset?.objectUrl;
+          if (oldVideoUrl !== videoAsset.objectUrl) {
+            safeRevokeUrl(oldVideoUrl);
+          }
+        }
+        this.project.slides = [];
+      }
+      const startIdx = this.project.slides.length;
+      this.project.slides.push(...newSlides);
+      this.activePreviewIndex = startIdx;
+      this.selection = { type: 'slide', slideId: newSlides[0].id };
+      this.notify('تم إنشاء شرائح العرض ومراحل التوقف من الفيديو بنجاح', 'success');
+    });
+
+    return newSlides;
+  }
+
   replaceSlideImage(slideId: string, newImageAsset: MediaAsset): void {
     const slide = this.project.slides.find((s) => s.id === slideId);
     if (!slide) return;
@@ -219,6 +253,70 @@ export class PresentationStore {
     }
     this.selection = { type: 'transition', slideId: slide.id };
     this.emit('structural');
+  }
+
+  async splitTransitionAtTime(slideId: string, splitTimeSec?: number): Promise<SlideNode | null> {
+    const idx = this.project.slides.findIndex((s) => s.id === slideId);
+    if (idx === -1) return null;
+    const slide = this.project.slides[idx];
+    const videoAsset = slide.transitionToNext.videoAsset;
+    if (!videoAsset) {
+      this.notify('لا يوجد فيديو انتقال مرتبط بهذه الشريحة لتقسيمه', 'warning');
+      return null;
+    }
+
+    const start = slide.transitionToNext.startTimeSec ?? 0;
+    const end = slide.transitionToNext.endTimeSec ?? (videoAsset.durationSec || 1);
+    const mid = typeof splitTimeSec === 'number' && splitTimeSec > start + 0.08 && splitTimeSec < end - 0.08
+      ? splitTimeSec
+      : Number(((start + end) / 2).toFixed(2));
+    const extractedFrame = await FrameExtractor.extractFrameAtTimeAsSlideAsset(
+      videoAsset,
+      mid,
+      `توقف_${mid.toFixed(1)}s.png`
+    );
+
+    let newSlide!: SlideNode;
+    this.batchUpdate(() => {
+      slide.transitionToNext.startTimeSec = start;
+      slide.transitionToNext.endTimeSec = mid;
+      newSlide = this.addSlideFromImage(extractedFrame, idx);
+      newSlide.title = `مرحلة توقف (${mid.toFixed(2)}s)`;
+      newSlide.transitionToNext.videoAsset = videoAsset;
+      newSlide.transitionToNext.startTimeSec = mid;
+      newSlide.transitionToNext.endTimeSec = end;
+      newSlide.transitionToNext.playbackSpeed = slide.transitionToNext.playbackSpeed;
+      newSlide.transitionToNext.muted = slide.transitionToNext.muted;
+    });
+    return newSlide;
+  }
+
+  async generateTransitionVideoForSlide(slideId: string): Promise<boolean> {
+    const idx = this.project.slides.findIndex((s) => s.id === slideId);
+    if (idx === -1) return false;
+    const nextIdx = idx + 1 < this.project.slides.length
+      ? idx + 1
+      : (this.project.settings.loopPresentation && this.project.slides.length > 1 ? 0 : -1);
+    if (nextIdx === -1) {
+      this.notify('أضف شريحة تالية أولاً لتوليد فيديو انتقال بينهما', 'warning');
+      return false;
+    }
+
+    const slide = this.project.slides[idx];
+    const { videoAsset, reverseFrames } = await DemoGenerator.generateTransitionVideoBetweenSlides(
+      slide,
+      this.project.slides[nextIdx],
+      slide.transitionToNext.fallbackStyle,
+      slide.transitionToNext.fallbackDurationMs || 900
+    );
+    slide.transitionToNext.videoAsset = videoAsset;
+    slide.transitionToNext.startTimeSec = undefined;
+    slide.transitionToNext.endTimeSec = undefined;
+    StagePlaybackEngine.cacheReverseFrames(slide.transitionToNext.id, reverseFrames);
+    StagePlaybackEngine.cacheReverseFrames(videoAsset.id, reverseFrames);
+    this.emit('structural');
+    this.notify('تم توليد وربط فيديو الانتقال الحركي بنجاح', 'success');
+    return true;
   }
 
   async extractNextSlideFromTransitionEnd(slideId: string): Promise<SlideNode | null> {

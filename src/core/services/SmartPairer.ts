@@ -291,4 +291,64 @@ export class SmartPairer {
     const parsed = SmartPairer.parseIndicesFromFilename(name);
     return parsed ? parsed.fromIndex : null;
   }
+
+  static normalizeCuePoints(cueTimesSec: number[], durationSec: number): number[] {
+    const duration = durationSec > 0 ? durationSec : 1;
+
+    const filtered = (Array.isArray(cueTimesSec) ? cueTimesSec : [])
+      .filter((t) => typeof t === 'number' && Number.isFinite(t))
+      .map((t) => Math.min(duration, Math.max(0, t)))
+      .sort((a, b) => a - b);
+
+    const deduplicated: number[] = [];
+    for (const t of filtered) {
+      const last = deduplicated[deduplicated.length - 1];
+      if (last === undefined || Math.abs(t - last) >= 0.08) {
+        deduplicated.push(t);
+      }
+    }
+
+    if (deduplicated.length === 0) {
+      return [0, duration];
+    }
+    if (deduplicated.length === 1) {
+      const t = deduplicated[0];
+      if (t < duration * 0.5) {
+        return [t, duration];
+      }
+      return [0, t];
+    }
+
+    return deduplicated;
+  }
+
+  static async buildSlidesFromVideoCuePoints(
+    videoAsset: MediaAsset,
+    cueTimesSec: number[],
+    defaultFallback: FallbackTransitionStyle = 'crossfade'
+  ): Promise<SlideNode[]> {
+    const normalized = this.normalizeCuePoints(cueTimesSec, videoAsset.durationSec || 4);
+
+    const slides: SlideNode[] = [];
+    for (let i = 0; i < normalized.length; i++) {
+      const t = normalized[i];
+      const frameAsset = await FrameExtractor.extractFrameAtTimeAsSlideAsset(
+        videoAsset,
+        t,
+        `توقف_${i + 1}_${t.toFixed(1)}s.png`
+      );
+      const slide = createSlideNode(frameAsset, i, defaultFallback);
+      slide.title = `مرحلة توقف ${i + 1} (${t.toFixed(2)}s)`;
+
+      if (i < normalized.length - 1) {
+        slide.transitionToNext.videoAsset = videoAsset;
+        slide.transitionToNext.startTimeSec = normalized[i];
+        slide.transitionToNext.endTimeSec = normalized[i + 1];
+      }
+
+      slides.push(slide);
+    }
+
+    return slides;
+  }
 }
