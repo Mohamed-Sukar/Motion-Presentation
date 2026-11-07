@@ -7,9 +7,13 @@ import { MediaAsset } from '../domain/types';
  * This ensures 100% pixel-exact continuity between a motion video and its landing slide.
  */
 export class FrameExtractor {
-  static async extractFrameAsSlideAsset(
+  /**
+   * Extracts a full-resolution PNG MediaAsset at the exact timestamp
+   * `Math.max(0, timeSec)` (clamped to `Math.max(0, duration - 0.001)` once metadata loads).
+   */
+  static async extractFrameAtTimeAsSlideAsset(
     videoAsset: MediaAsset,
-    position: 'first' | 'last',
+    timeSec: number,
     customLabel?: string
   ): Promise<MediaAsset> {
     return new Promise((resolve, reject) => {
@@ -83,10 +87,11 @@ export class FrameExtractor {
         }
 
         // Accurate timing offset without arbitrary deductions
-        const targetTime =
-          position === 'first'
-            ? 0
+        const requestedTime =
+          Number.isFinite(timeSec) && timeSec >= 0
+            ? Math.max(0, timeSec)
             : Math.max(0, duration - 0.001);
+        const targetTime = Math.min(requestedTime, Math.max(0, duration - 0.001));
 
         // Dedicated 3000ms safety timeout specifically around seeking
         timeoutId = window.setTimeout(() => {
@@ -128,8 +133,7 @@ export class FrameExtractor {
                   return;
                 }
                 const baseName = videoAsset.name.replace(/\.[^/.]+$/, '');
-                const suffix = position === 'first' ? 'بداية' : 'نهاية';
-                const fileName = customLabel || `${baseName}_${suffix}.png`;
+                const fileName = customLabel || `${baseName}_مستخلص.png`;
                 const file = new File([blob], fileName, { type: 'image/png' });
                 const objectUrl = URL.createObjectURL(file);
 
@@ -169,5 +173,23 @@ export class FrameExtractor {
 
       video.src = videoAsset.objectUrl;
     });
+  }
+
+  /**
+   * Extracts a full-resolution static Slide Image (PNG MediaAsset) from either
+   * the first frame or the final frame of a Transition Video.
+   * This ensures 100% pixel-exact continuity between a motion video and its landing slide.
+   */
+  static async extractFrameAsSlideAsset(
+    videoAsset: MediaAsset,
+    position: 'first' | 'last',
+    customLabel?: string
+  ): Promise<MediaAsset> {
+    const baseName = videoAsset.name.replace(/\.[^/.]+$/, '');
+    const suffix = position === 'first' ? 'بداية' : 'نهاية';
+    const fileName = customLabel || `${baseName}_${suffix}.png`;
+    // For 'last' pass negative sentinel - timeSec >= 0 triggers end-of-video logic in extractFrameAtTimeAsSlideAsset
+    const timeSec = position === 'first' ? 0 : -1;
+    return this.extractFrameAtTimeAsSlideAsset(videoAsset, timeSec, fileName);
   }
 }

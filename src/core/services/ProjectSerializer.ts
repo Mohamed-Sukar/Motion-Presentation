@@ -39,6 +39,8 @@ export class ProjectSerializer {
           hasCustomVideo: Boolean(s.transitionToNext.videoAsset),
           videoFileName: s.transitionToNext.videoAsset?.name || null,
           videoDurationSec: s.transitionToNext.videoAsset?.durationSec || 0,
+          startTimeSec: s.transitionToNext.startTimeSec,
+          endTimeSec: s.transitionToNext.endTimeSec,
           videoThumbnailUrl: s.transitionToNext.videoAsset?.thumbnailUrl?.startsWith('data:') ? s.transitionToNext.videoAsset.thumbnailUrl : undefined,
           fallbackStyle: s.transitionToNext.fallbackStyle,
           fallbackDurationMs: s.transitionToNext.fallbackDurationMs,
@@ -73,6 +75,8 @@ export class ProjectSerializer {
         hasCustomVideo?: boolean;
         videoFileName?: string | null;
         videoDurationSec?: number;
+        startTimeSec?: number;
+        endTimeSec?: number;
         fallbackStyle?: string;
         fallbackDurationMs?: number;
         playbackSpeed?: number;

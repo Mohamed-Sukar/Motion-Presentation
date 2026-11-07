@@ -388,6 +388,11 @@ export class PresentationStore {
           slide.transitionToNext.playbackSpeed =
             sd.transitionToNext.playbackSpeed || 1.0;
           slide.transitionToNext.muted = Boolean(sd.transitionToNext.muted);
+          // Restore time-slice / cue-point segment support
+          slide.transitionToNext.startTimeSec =
+            typeof sd.transitionToNext?.startTimeSec === 'number' && !Number.isNaN(sd.transitionToNext.startTimeSec) ? sd.transitionToNext.startTimeSec : undefined;
+          slide.transitionToNext.endTimeSec =
+            typeof sd.transitionToNext?.endTimeSec === 'number' && !Number.isNaN(sd.transitionToNext.endTimeSec) ? sd.transitionToNext.endTimeSec : undefined;
         }
 
         return slide;

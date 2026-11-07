@@ -348,9 +348,11 @@ export class StagePlaybackEngine {
     // If the transition between prevIdx and currentIdx has a video transition,
     // play the cached video frames in true reverse!
     if (spec?.videoAsset) {
-      const cachedFrames =
-        this.getReverseFrames(spec.id) ||
-        this.getReverseFrames(spec.videoAsset.id);
+      const isSegment =
+        typeof spec.startTimeSec === 'number' || typeof spec.endTimeSec === 'number';
+      const cachedFrames = isSegment
+        ? this.getReverseFrames(spec.id)
+        : (this.getReverseFrames(spec.id) || this.getReverseFrames(spec.videoAsset.id));
       if (cachedFrames && cachedFrames.length > 0) {
         this.runReverseVideoTransition(currentIdx, prevIdx, spec, cachedFrames);
         return;
@@ -571,6 +573,13 @@ export class StagePlaybackEngine {
     const fromSlide = this.slides[fromIndex];
     const spec = fromSlide.transitionToNext;
 
+    // Time-slice / cue-point segment support: a single continuous video can play
+    // a [startTimeSec, endTimeSec] sub-range between slides without flicker.
+    const startTime =
+      typeof spec.startTimeSec === 'number' && spec.startTimeSec >= 0
+        ? spec.startTimeSec
+        : 0;
+
     const video = await this.ensureVideoWarmed(videoAssetId, videoObjectUrl);
     this.activeVideo = video;
 
@@ -586,7 +595,7 @@ export class StagePlaybackEngine {
         ? this.settings.masterVolume
         : 0.9;
     video.volume = Math.max(0, Math.min(1, masterVol));
-    video.currentTime = 0;
+    video.currentTime = startTime;
 
     const recordedFrames: (ImageBitmap | HTMLCanvasElement)[] = [];
     let lastRecordedTime = -1;
@@ -649,11 +658,15 @@ export class StagePlaybackEngine {
         }
       }
 
-      // Store recorded frames into reverse frame cache for true reverse playback
+      // Store recorded frames into reverse frame cache for true reverse playback.
+      // Segment transitions (cue-point) only cache under the transition spec id so
+      // multiple cues sharing one reel video asset don't overwrite each other's frames.
       if (recordedFrames.length > 0) {
         this.storeReverseFrames(spec.id, recordedFrames);
-        if (spec.videoAsset?.id) {
-          this.storeReverseFrames(spec.videoAsset.id, recordedFrames);
+        if (typeof spec.startTimeSec === 'undefined' && typeof spec.endTimeSec === 'undefined') {
+          if (spec.videoAsset?.id) {
+            this.storeReverseFrames(spec.videoAsset.id, recordedFrames);
+          }
         }
       }
 
@@ -684,16 +697,21 @@ export class StagePlaybackEngine {
     const renderTick = () => {
       if (completed || this.activeVideo !== video) return;
 
-      const duration =
+      const fullDuration =
         Number.isFinite(video.duration) && video.duration > 0
           ? video.duration
           : spec.videoAsset?.durationSec && spec.videoAsset.durationSec > 0
             ? spec.videoAsset.durationSec
             : 1;
-      const progress = Math.min(1, Math.max(0, video.currentTime / duration));
+      const endTime =
+        typeof spec.endTimeSec === 'number' && spec.endTimeSec > startTime
+          ? Math.min(fullDuration, spec.endTimeSec)
+          : fullDuration;
+      const segmentDuration = Math.max(0.05, endTime - startTime);
+      const progress = Math.min(1, Math.max(0, (video.currentTime - startTime) / segmentDuration));
 
-      // ZERO-FLICKER GUARD: Keep painting fromSlide until video has decoded & advanced past frame 0
-      if (video.readyState >= 2 && video.currentTime > 0.001) {
+      // ZERO-FLICKER / CONTINUITY GUARD: keep painting video only once decoded & past the start frame
+      if (video.readyState >= 2 && video.currentTime > startTime + 0.001) {
         this.clearStage();
         this.drawMediaElement(video, video.videoWidth || 1920, video.videoHeight || 1080);
 
@@ -715,8 +733,9 @@ export class StagePlaybackEngine {
 
       this.emitStatus({ transitionProgress: progress });
 
-      // Clean completion detection: handles normal completion and Chromium WebM blob duration=Infinity edge cases
-      if (video.ended || (duration > 0.1 && video.currentTime >= duration - 0.02)) {
+      // Segment completion detection handles normal end, trimmed end, and WebM Infinity durations
+      if (video.ended || (segmentDuration > 0.05 && video.currentTime >= endTime - 0.015)) {
+        video.pause();
         finish();
         return;
       }
@@ -978,10 +997,11 @@ export class StagePlaybackEngine {
       return;
     }
 
-    const durationSec =
-      spec.videoAsset?.durationSec && spec.videoAsset.durationSec > 0
+    const durationSec = typeof spec.startTimeSec === 'number' || typeof spec.endTimeSec === 'number'
+      ? Math.max(0.1, (spec.endTimeSec ?? (spec.videoAsset?.durationSec || 1)) - (spec.startTimeSec ?? 0))
+      : (spec.videoAsset?.durationSec && spec.videoAsset.durationSec > 0
         ? spec.videoAsset.durationSec
-        : frames.length / 60;
+        : frames.length / 60);
     const baseDurationMs = Math.max(80, durationSec * 1000);
 
     let speedMultiplier = Math.max(
@@ -1171,16 +1191,19 @@ export class StagePlaybackEngine {
 
   private async prewarmReverseFrames(
     specId: string,
-    videoAsset: { id: string; objectUrl: string; durationSec?: number }
+    videoAsset: { id: string; objectUrl: string; durationSec?: number },
+    startTimeSec?: number,
+    endTimeSec?: number
   ): Promise<void> {
     if (this.hasReverseFrames(specId) || this.hasReverseFrames(videoAsset.id)) return;
     if (typeof document === 'undefined') return;
 
     try {
-      const dur =
-        videoAsset.durationSec && videoAsset.durationSec > 0
-          ? videoAsset.durationSec
-          : 0.8;
+      const start = startTimeSec ?? 0;
+      const end = endTimeSec ?? (videoAsset.durationSec || 1);
+      const dur = Math.max(0.05, end - start);
+
+      if (this.hasReverseFrames(specId) || this.hasReverseFrames(videoAsset.id)) return;
 
       const sampleCount = Math.min(30, Math.max(10, Math.round(dur * 25)));
       const frames: HTMLCanvasElement[] = [];
@@ -1207,7 +1230,7 @@ export class StagePlaybackEngine {
       const h = video.videoHeight || 720;
 
       for (let i = 0; i < sampleCount; i++) {
-        const targetTime = (i / (sampleCount - 1)) * Math.max(0.01, dur - 0.02);
+        const targetTime = start + ((i / (sampleCount - 1)) * (dur - start));
         if (Math.abs(video.currentTime - targetTime) > 0.02) {
           video.currentTime = targetTime;
           await new Promise<void>((resolve) => {
@@ -1234,7 +1257,9 @@ export class StagePlaybackEngine {
 
       if (frames.length > 0 && !this.hasReverseFrames(specId)) {
         this.storeReverseFrames(specId, frames);
-        this.storeReverseFrames(videoAsset.id, frames);
+        if (typeof startTimeSec === 'undefined' && typeof endTimeSec === 'undefined') {
+          this.storeReverseFrames(videoAsset.id, frames);
+        }
       }
     } catch {
       // Ignored: runtime capture will handle it

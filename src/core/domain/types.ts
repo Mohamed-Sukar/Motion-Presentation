@@ -41,6 +41,8 @@ export interface TransitionSpec {
   fallbackDurationMs: number;
   playbackSpeed: number;
   muted: boolean;
+  startTimeSec?: number;
+  endTimeSec?: number;
 }
 
 export interface SlideNode {
