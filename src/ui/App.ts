@@ -6,6 +6,7 @@ import {
   FitMode,
   HudVisibility,
   InterruptBehavior,
+  MediaAsset,
   PresentationSettings,
 } from '../core/domain/types';
 import { StagePlaybackEngine } from '../core/engine/StagePlaybackEngine';
@@ -46,7 +47,6 @@ export class MotionPresentationApp {
   private isInspectorVisible = true;
   private isPresentingFullscreen = false;
   private isSlideGridOpen = false;
-  private isPresenterNotesOpen = false;
   private isGeneratingDemo = false;
   private presenterCursorTimer: number | null = null;
   private presenterOverlayEl: HTMLElement | null = null;
@@ -78,6 +78,8 @@ export class MotionPresentationApp {
       </main>
       <div id="toast-container" aria-live="polite"></div>
       <div id="fullscreen-root"></div>
+      <div id="reel-modal-host"></div>
+      <input type="file" id="reel-video-input" accept="${VIDEO_ACCEPT_STRING}" style="display:none;" />
       <input type="file" id="batch-file-input" multiple accept="${ALL_MEDIA_ACCEPT_STRING}" style="display:none;" />
       <input type="file" id="single-image-input" accept="${IMAGE_ACCEPT_STRING}" style="display:none;" />
       <input type="file" id="single-video-input" accept="${VIDEO_ACCEPT_STRING}" style="display:none;" />
@@ -243,6 +245,11 @@ export class MotionPresentationApp {
           <span>استيراد وسائط...</span>
         </button>
 
+        <button class="btn btn-toolbar" id="btn-reel-workflow" title="استيراد فيديو موشن كامل وتحديد مراحل التوقف (/motion-reel)">
+          ${Icons.filmTransition}
+          <span>فيديو كامل + نقاط توقف...</span>
+        </button>
+
         <button class="btn btn-toolbar" id="btn-add-slide" title="إضافة شريحة صورة ثابتة">
           ${Icons.photoPlus}
           <span>شريحة جديدة...</span>
@@ -300,6 +307,10 @@ export class MotionPresentationApp {
 
     toolbar.querySelector('#btn-batch-import')?.addEventListener('click', () => {
       this.handleImportMedia();
+    });
+
+    toolbar.querySelector('#btn-reel-workflow')?.addEventListener('click', () => {
+      this.handleOpenReelWorkflow();
     });
 
     toolbar.querySelector('#btn-add-slide')?.addEventListener('click', () => {
@@ -404,6 +415,16 @@ export class MotionPresentationApp {
       const isActiveOnStage = idx === activeIdx && slides.length > 0;
       const isLastSlide = idx === slides.length - 1;
       const vid = slide.transitionToNext.videoAsset;
+      const clipDur =
+        vid &&
+        (typeof slide.transitionToNext.startTimeSec === 'number' ||
+          typeof slide.transitionToNext.endTimeSec === 'number')
+          ? Math.max(
+              0.1,
+              (slide.transitionToNext.endTimeSec ?? vid.durationSec) -
+                (slide.transitionToNext.startTimeSec ?? 0)
+            )
+          : (vid ? vid.durationSec : 0);
 
       listHtml += `
         <div
@@ -472,7 +493,7 @@ export class MotionPresentationApp {
               </div>
               ${
                 vid
-                  ? `<span class="filmstrip-timecode">${vid.durationSec.toFixed(1)}s</span>`
+                  ? `<span class="filmstrip-timecode">${clipDur.toFixed(1)}s</span>`
                   : `<span class="filmstrip-fallback-tag">${fallbackShortNames[slide.transitionToNext.fallbackStyle]}</span>`
               }
             </div>
@@ -612,6 +633,10 @@ export class MotionPresentationApp {
             ${Icons.folderImport}
             <span>اختيار ملفات...</span>
           </button>
+          <button class="btn" id="btn-empty-reel">
+            ${Icons.filmTransition}
+            <span>فيديو كامل + نقاط توقف</span>
+          </button>
           <button class="btn" id="btn-empty-demo">
             ${Icons.sparkles}
             <span>توليد عرض تجريبي</span>
@@ -622,6 +647,10 @@ export class MotionPresentationApp {
 
     overlay.querySelector('#btn-empty-import')?.addEventListener('click', () => {
       this.handleImportMedia();
+    });
+
+    overlay.querySelector('#btn-empty-reel')?.addEventListener('click', () => {
+      this.handleOpenReelWorkflow();
     });
 
     overlay.querySelector('#btn-empty-demo')?.addEventListener('click', () => {
@@ -752,17 +781,6 @@ export class MotionPresentationApp {
         }
       }
     });
-
-    if (this.isPresentingFullscreen) {
-      const notesContent = this.root.querySelector('#fs-notes-content');
-      if (notesContent) {
-        const slide = this.store.getSlides()[currentIdx];
-        const notes = slide?.notes?.trim();
-        notesContent.innerHTML = notes
-          ? `<div class="presenter-notes-text">${this.escapeHtml(notes).replace(/\n/g, '<br/>')}</div>`
-          : `<div class="presenter-notes-empty">لا توجد ملاحظات مسجلة لهذه الشريحة</div>`;
-      }
-    }
   }
 
   /* =========================================================================
@@ -826,7 +844,7 @@ export class MotionPresentationApp {
 
         <div class="inspector-group">
           <div class="inspector-group-title">
-            <span>التوقيت والملاحظات</span>
+            <span>التوقيت والتوقف</span>
           </div>
 
           <div class="prop-row">
@@ -847,16 +865,6 @@ export class MotionPresentationApp {
               value="${activeSlide.holdDurationSec ?? ''}"
             />
             <span class="prop-subtext">اتركه فارغاً للتوقف على الشريحة حتى تضغط المسافة أو الماوس.</span>
-          </div>
-
-          <div class="prop-row">
-            <label class="prop-label" for="insp-slide-notes">ملاحظات المحاضر</label>
-            <textarea
-              class="textarea-field"
-              id="insp-slide-notes"
-              rows="3"
-              placeholder="ملاحظات خاصة بهذه الشريحة..."
-            >${this.escapeHtml(activeSlide.notes)}</textarea>
           </div>
         </div>
 
@@ -904,7 +912,39 @@ export class MotionPresentationApp {
               <button class="btn btn-destructive" id="btn-remove-trans-video">إزالة الفيديو</button>
             </div>
 
-            <button class="btn" id="btn-extract-end-frame" style="width: 100%;" title="يستخرج آخر إطار من الفيديو كصورة شريحة تالية">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px;">
+              <div class="prop-row" style="margin-bottom: 0;">
+                <label class="prop-label" for="insp-trans-start">بداية المقطع (ث)</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="${vid.durationSec.toFixed(2)}"
+                  step="0.05"
+                  class="input-field tabular-nums"
+                  id="insp-trans-start"
+                  value="${(spec.startTimeSec ?? 0).toFixed(2)}"
+                />
+              </div>
+              <div class="prop-row" style="margin-bottom: 0;">
+                <label class="prop-label" for="insp-trans-end">نهاية المقطع / التوقف (ث)</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="${vid.durationSec.toFixed(2)}"
+                  step="0.05"
+                  class="input-field tabular-nums"
+                  id="insp-trans-end"
+                  value="${(spec.endTimeSec ?? Number(vid.durationSec.toFixed(2))).toFixed(2)}"
+                />
+              </div>
+            </div>
+
+            <button class="btn" id="btn-split-transition" style="width: 100%; margin-top: 6px;" title="إضافة مرحلة توقف في منتصف هذا الانتقال">
+              ${Icons.plus}
+              <span>إضافة مرحلة توقف في منتصف المقطع</span>
+            </button>
+
+            <button class="btn" id="btn-extract-end-frame" style="width: 100%; margin-top: 6px;" title="يستخرج آخر إطار من الفيديو كصورة شريحة تالية">
               ${Icons.extractFrame}
               <span>استخراج آخر إطار كشريحة تالية</span>
             </button>
@@ -919,6 +959,11 @@ export class MotionPresentationApp {
             </button>
           `
           }
+
+          <button class="btn" id="btn-generate-trans-video" style="width: 100%; margin-top: 4px;" title="توليد فيديو انتقال حركي تلقائياً بين هذه الشريحة والشريحة التالية">
+            ${Icons.sparkles}
+            <span>توليد فيديو انتقال حركي تلقائي (.webm)</span>
+          </button>
         </div>
 
         <div class="inspector-group" style="border-bottom: none;">
@@ -1162,11 +1207,6 @@ export class MotionPresentationApp {
         });
       });
 
-      const notesIn = pane.querySelector('#insp-slide-notes') as HTMLTextAreaElement;
-      notesIn?.addEventListener('change', () => {
-        this.store.updateSlideDetails(activeSlide.id, { notes: notesIn.value });
-      });
-
       pane.querySelector('#btn-replace-slide-img')?.addEventListener('click', () => {
         const input = this.root.querySelector('#single-image-input') as HTMLInputElement;
         input.dataset.replaceSlideId = activeSlide.id;
@@ -1179,6 +1219,8 @@ export class MotionPresentationApp {
     }
 
     if (activeSegment === 'transition' && activeSlide) {
+      const vid = activeSlide.transitionToNext.videoAsset;
+
       pane.querySelector('#btn-replace-trans-video')?.addEventListener('click', () => {
         const input = this.root.querySelector('#single-video-input') as HTMLInputElement;
         input.dataset.targetSlideId = activeSlide.id;
@@ -1190,8 +1232,49 @@ export class MotionPresentationApp {
         this.store.notify('تمت إزالة فيديو الانتقال', 'info');
       });
 
-      pane.querySelector('#btn-extract-end-frame')?.addEventListener('click', () => {
-        this.store.extractNextSlideFromTransitionEnd(activeSlide.id);
+      if (vid) {
+        const startIn = pane.querySelector('#insp-trans-start') as HTMLInputElement;
+        startIn?.addEventListener('change', () => {
+          const val = parseFloat(startIn.value);
+          this.store.updateTransitionSpec(activeSlide.id, {
+            startTimeSec: Number.isFinite(val) ? Math.max(0, val) : 0,
+          });
+        });
+
+        const endIn = pane.querySelector('#insp-trans-end') as HTMLInputElement;
+        endIn?.addEventListener('change', () => {
+          const val = parseFloat(endIn.value);
+          this.store.updateTransitionSpec(activeSlide.id, {
+            endTimeSec: Number.isFinite(val) ? Math.max(0, val) : vid.durationSec,
+          });
+        });
+
+        pane.querySelector('#btn-split-transition')?.addEventListener('click', async () => {
+          const btn = pane.querySelector('#btn-split-transition') as HTMLButtonElement;
+          if (btn) btn.disabled = true;
+          try {
+            await this.store.splitTransitionAtTime(activeSlide.id);
+          } finally {
+            if (btn) btn.disabled = false;
+          }
+        });
+
+        pane.querySelector('#btn-extract-end-frame')?.addEventListener('click', () => {
+          this.store.extractNextSlideFromTransitionEnd(activeSlide.id);
+        });
+      }
+
+      pane.querySelector('#btn-generate-trans-video')?.addEventListener('click', async () => {
+        const btn = pane.querySelector('#btn-generate-trans-video') as HTMLButtonElement;
+        if (btn) {
+          btn.disabled = true;
+          btn.innerHTML = `${Icons.sparkles}<span>جاري التوليد...</span>`;
+        }
+        try {
+          await this.store.generateTransitionVideoForSlide(activeSlide.id);
+        } finally {
+          if (btn) btn.disabled = false;
+        }
       });
 
       const speedInput = pane.querySelector('#insp-trans-speed') as HTMLInputElement;
@@ -1392,6 +1475,23 @@ export class MotionPresentationApp {
       if (!targetSlideId) return;
       await this.attachVideoFileToSlide(targetSlideId, file);
     });
+
+    const reelVideoInput = this.root.querySelector('#reel-video-input') as HTMLInputElement;
+    reelVideoInput?.addEventListener('change', async () => {
+      if (!reelVideoInput.files?.length) return;
+      const file = reelVideoInput.files[0];
+      reelVideoInput.value = '';
+      try {
+        this.store.notify(`جاري تحليل الفيديو (${file.name})...`, 'info', 2000);
+        const videoAsset = await MediaValidator.ingestFile(file, 'video');
+        this.openReelCueModal(videoAsset);
+      } catch (err) {
+        this.store.notify(
+          err instanceof Error ? err.message : 'ملف الفيديو غير مدعوم',
+          'error'
+        );
+      }
+    });
   }
 
   private async attachVideoFileToSlide(slideId: string, file: File): Promise<void> {
@@ -1437,6 +1537,26 @@ export class MotionPresentationApp {
   }
 
   private async handleBatchFiles(files: File[]): Promise<void> {
+    // Single video on empty canvas shortcut into Motion-Reel Cue Points Workflow
+    if (files.length === 1 && this.store.getSlides().length === 0) {
+      const file = files[0];
+      const check = MediaValidator.validateFile(file);
+      if (check.valid && check.kind === 'video') {
+        try {
+          this.store.notify(`جاري تحليل الفيديو (${file.name})...`, 'info', 2000);
+          const videoAsset = await MediaValidator.ingestFile(file, 'video');
+          this.openReelCueModal(videoAsset);
+          return;
+        } catch (err) {
+          this.store.notify(
+            err instanceof Error ? err.message : 'تعذر تحميل الفيديو',
+            'error'
+          );
+          return;
+        }
+      }
+    }
+
     this.store.notify(`جاري فرز ${files.length} ملف...`, 'info', 2500);
     const { newSlides, unpairedVideos, report } = await SmartPairer.processBatchFiles(
       files,
@@ -1525,9 +1645,6 @@ export class MotionPresentationApp {
             ${Icons.chevronLeft}
           </button>
           <div class="toolbar-divider"></div>
-          <button class="hud-transport-btn" id="fs-btn-notes" title="ملاحظات المتحدث (N)" aria-label="ملاحظات المتحدث">
-            ${Icons.notes}
-          </button>
           <button class="hud-transport-btn" id="fs-btn-grid" title="شبكة الشرائح (G)" aria-label="عرض شبكة الشرائح">
             ${Icons.grid}
           </button>
@@ -1535,16 +1652,6 @@ export class MotionPresentationApp {
             ${Icons.close}
           </button>
         </div>
-        <aside class="presenter-notes-drawer hidden" id="fs-notes-drawer" role="complementary" aria-label="ملاحظات المتحدث">
-          <div class="presenter-notes-header">
-            <div style="display:flex; align-items:center; gap:8px;">
-              ${Icons.notes}
-              <span style="font-weight:600; font-size:13px;">ملاحظات المتحدث</span>
-            </div>
-            <button class="icon-btn sm" id="fs-btn-close-notes" aria-label="إغلاق">${Icons.close}</button>
-          </div>
-          <div class="presenter-notes-body" id="fs-notes-content"></div>
-        </aside>
         <div id="fs-grid-host"></div>
       </div>
     `;
@@ -1592,16 +1699,6 @@ export class MotionPresentationApp {
       this.presenterEngine?.next();
     });
 
-    fsRoot.querySelector('#fs-btn-notes')?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.togglePresenterNotes();
-    });
-
-    fsRoot.querySelector('#fs-btn-close-notes')?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.togglePresenterNotes();
-    });
-
     fsRoot.querySelector('#fs-btn-grid')?.addEventListener('click', (e) => {
       e.stopPropagation();
       this.togglePresenterSlideGrid();
@@ -1618,19 +1715,11 @@ export class MotionPresentationApp {
     this.resetPresenterCursorAutoHide();
   }
 
-  private togglePresenterNotes(): void {
-    if (!this.isPresentingFullscreen) return;
-    const drawer = this.root.querySelector('#fs-notes-drawer') as HTMLElement;
-    if (!drawer) return;
-    drawer.classList.toggle('hidden');
-  }
-
   private updateFullscreenHud(status: EngineStatus): void {
     if (!this.isPresentingFullscreen) return;
     const slides = this.store.getSlides();
     const label = this.root.querySelector('#fs-hud-label') as HTMLElement;
     const topBar = this.root.querySelector('#fs-top-bar') as HTMLElement;
-    const notesContent = this.root.querySelector('#fs-notes-content') as HTMLElement;
 
     const current = String(status.currentSlideIndex + 1).padStart(2, '0');
     const total = String(slides.length).padStart(2, '0');
@@ -1654,14 +1743,6 @@ export class MotionPresentationApp {
             100
           : 100;
       topBar.style.width = `${Math.min(100, Math.max(0, basePct))}%`;
-    }
-
-    if (notesContent) {
-      const currentSlide = slides[status.currentSlideIndex];
-      const notes = currentSlide?.notes?.trim();
-      notesContent.innerHTML = notes
-        ? `<div class="presenter-notes-text">${this.escapeHtml(notes).replace(/\n/g, '<br/>')}</div>`
-        : `<div class="presenter-notes-empty">لا توجد ملاحظات مسجلة لهذه الشريحة</div>`;
     }
   }
 
@@ -1867,12 +1948,6 @@ export class MotionPresentationApp {
           return;
         }
 
-        if (e.key.toLowerCase() === 'n') {
-          e.preventDefault();
-          this.togglePresenterNotes();
-          return;
-        }
-
         if (e.key.toLowerCase() === 'b' || e.key === '.') {
           e.preventDefault();
           this.presenterEngine?.toggleBlackout();
@@ -1964,6 +2039,230 @@ export class MotionPresentationApp {
     document.addEventListener('fullscreenchange', () => {
       if (!document.fullscreenElement && this.isPresentingFullscreen && !window.desktopAPI) {
         this.exitFullscreenPresentation();
+      }
+    });
+  }
+
+  private async handleOpenReelWorkflow(): Promise<void> {
+    if (window.desktopAPI?.openMediaDialog) {
+      try {
+        const selected = await window.desktopAPI.openMediaDialog();
+        if (selected && selected.length > 0) {
+          const first = selected[0];
+          const file = new File([first.buffer], first.fileName, { type: first.mimeType });
+          this.store.notify(`جاري تحليل الفيديو (${file.name})...`, 'info', 2000);
+          const videoAsset = await MediaValidator.ingestFile(file, 'video');
+          this.openReelCueModal(videoAsset);
+        }
+      } catch (err) {
+        this.store.notify(
+          err instanceof Error ? err.message : 'فشل اختيار ملف الفيديو',
+          'error'
+        );
+      }
+    } else {
+      const input = this.root.querySelector('#reel-video-input') as HTMLInputElement;
+      input?.click();
+    }
+  }
+
+  private openReelCueModal(videoAsset: MediaAsset): void {
+    const host = this.root.querySelector('#reel-modal-host') as HTMLElement;
+    if (!host) return;
+
+    let cuePoints: number[] =
+      videoAsset.durationSec >= 2
+        ? [0, Number((videoAsset.durationSec / 2).toFixed(2)), Number(videoAsset.durationSec.toFixed(2))]
+        : [0, Number(videoAsset.durationSec.toFixed(2))];
+    cuePoints = SmartPairer.normalizeCuePoints(cuePoints, videoAsset.durationSec);
+
+    host.innerHTML = `
+      <div class="reel-cue-modal-backdrop" id="reel-modal-backdrop">
+        <div class="reel-cue-modal" role="dialog" aria-modal="true" aria-label="تقسيم فيديو كامل إلى مراحل توقف">
+          <div class="reel-cue-modal-header">
+            <div class="reel-modal-header-lead">
+              ${Icons.filmTransition}
+              <span class="reel-modal-title">تقسيم فيديو كامل إلى مراحل توقف (Motion Reel Cue Points)</span>
+              <span class="reel-modal-badge">${this.escapeHtml(videoAsset.name)} · ${videoAsset.durationSec.toFixed(1)}s</span>
+            </div>
+            <button class="icon-btn" id="btn-reel-modal-close" aria-label="إغلاق">${Icons.close}</button>
+          </div>
+
+          <div class="reel-cue-modal-body">
+            <div class="reel-video-stage">
+              <video id="reel-preview-video" src="${videoAsset.objectUrl}" controls playsinline preload="auto"></video>
+            </div>
+
+            <div class="reel-cue-controls">
+              <div class="reel-transport-bar">
+                <span id="reel-current-time" class="tabular-nums">الوقت الحالي: 0.00s</span>
+                <button class="btn btn-prominent" id="btn-reel-add-current">
+                  ${Icons.plus}
+                  <span>إضافة نقطة توقف عند اللحظة الحالية</span>
+                </button>
+              </div>
+
+              <div class="reel-quick-splits">
+                <span class="prop-subtext" style="align-self: center;">تقسيم سريع متساوي:</span>
+                <button class="btn" id="btn-reel-split-3">تقسيم إلى 3 مراحل</button>
+                <button class="btn" id="btn-reel-split-4">4 مراحل</button>
+                <button class="btn" id="btn-reel-split-5">5 مراحل</button>
+              </div>
+
+              <div class="reel-cues-section">
+                <div class="prop-label" style="margin-bottom: 6px;">
+                  <span>نقاط ومراحل التوقف المسجلة:</span>
+                  <span class="prop-subtext" style="margin-inline-start: 6px;">(انقر على أي بطاقة للانتقال إلى وقتها)</span>
+                </div>
+                <div class="reel-cues-chips" id="reel-cues-list"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="reel-cue-modal-footer">
+            <button class="btn" id="btn-reel-cancel">إلغاء</button>
+            <button class="btn btn-prominent" id="btn-reel-apply">
+              إنشاء الشرائح ومراحل التوقف (${cuePoints.length} شرائح)
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const videoEl = host.querySelector('#reel-preview-video') as HTMLVideoElement;
+    const timeDisplay = host.querySelector('#reel-current-time') as HTMLElement;
+    const cuesListEl = host.querySelector('#reel-cues-list') as HTMLElement;
+    const applyBtn = host.querySelector('#btn-reel-apply') as HTMLButtonElement;
+
+    videoEl?.addEventListener('timeupdate', () => {
+      if (timeDisplay) {
+        timeDisplay.textContent = `الوقت الحالي: ${videoEl.currentTime.toFixed(2)}s`;
+      }
+    });
+
+    const closeModal = () => {
+      videoEl?.pause();
+      host.innerHTML = '';
+    };
+
+    host.querySelector('#btn-reel-modal-close')?.addEventListener('click', closeModal);
+    host.querySelector('#btn-reel-cancel')?.addEventListener('click', closeModal);
+    host.querySelector('#reel-modal-backdrop')?.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).id === 'reel-modal-backdrop') {
+        closeModal();
+      }
+    });
+
+    const updateFooterBtn = () => {
+      if (applyBtn) {
+        applyBtn.textContent = `إنشاء الشرائح ومراحل التوقف (${cuePoints.length} شرائح)`;
+      }
+    };
+
+    const renderCueChips = () => {
+      cuesListEl.innerHTML = cuePoints
+        .map(
+          (point, idx) => `
+        <div class="cue-chip" data-idx="${idx}" data-time="${point}">
+          <span class="cue-chip-label">توقف ${idx + 1}</span>
+          <span class="cue-chip-time tabular-nums">${point.toFixed(2)}s</span>
+          ${
+            cuePoints.length > 2
+              ? `<button class="cue-chip-del" data-idx="${idx}" title="حذف نقطة التوقف" aria-label="حذف">${Icons.close}</button>`
+              : ''
+          }
+        </div>
+      `
+        )
+        .join('');
+
+      cuesListEl.querySelectorAll('.cue-chip').forEach((chip) => {
+        chip.addEventListener('click', (e) => {
+          if ((e.target as HTMLElement).closest('.cue-chip-del')) return;
+          const t = parseFloat((chip as HTMLElement).dataset.time || '0');
+          if (videoEl) {
+            videoEl.currentTime = t;
+          }
+        });
+      });
+
+      cuesListEl.querySelectorAll('.cue-chip-del').forEach((delBtn) => {
+        delBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const idx = parseInt((delBtn as HTMLElement).dataset.idx || '0', 10);
+          if (cuePoints.length > 2) {
+            cuePoints.splice(idx, 1);
+            cuePoints = SmartPairer.normalizeCuePoints(cuePoints, videoAsset.durationSec);
+            renderCueChips();
+            updateFooterBtn();
+          }
+        });
+      });
+    };
+
+    renderCueChips();
+
+    host.querySelector('#btn-reel-add-current')?.addEventListener('click', () => {
+      const cur = Number(videoEl.currentTime.toFixed(2));
+      cuePoints.push(cur);
+      cuePoints = SmartPairer.normalizeCuePoints(cuePoints, videoAsset.durationSec);
+      renderCueChips();
+      updateFooterBtn();
+    });
+
+    const dur = videoAsset.durationSec > 0 ? videoAsset.durationSec : 1;
+
+    host.querySelector('#btn-reel-split-3')?.addEventListener('click', () => {
+      cuePoints = SmartPairer.normalizeCuePoints(
+        [0, Number((dur / 2).toFixed(2)), Number(dur.toFixed(2))],
+        dur
+      );
+      renderCueChips();
+      updateFooterBtn();
+    });
+
+    host.querySelector('#btn-reel-split-4')?.addEventListener('click', () => {
+      cuePoints = SmartPairer.normalizeCuePoints(
+        [
+          0,
+          Number((dur / 3).toFixed(2)),
+          Number(((2 * dur) / 3).toFixed(2)),
+          Number(dur.toFixed(2)),
+        ],
+        dur
+      );
+      renderCueChips();
+      updateFooterBtn();
+    });
+
+    host.querySelector('#btn-reel-split-5')?.addEventListener('click', () => {
+      cuePoints = SmartPairer.normalizeCuePoints(
+        [
+          0,
+          Number((dur / 4).toFixed(2)),
+          Number((dur / 2).toFixed(2)),
+          Number(((3 * dur) / 4).toFixed(2)),
+          Number(dur.toFixed(2)),
+        ],
+        dur
+      );
+      renderCueChips();
+      updateFooterBtn();
+    });
+
+    applyBtn?.addEventListener('click', async () => {
+      applyBtn.disabled = true;
+      applyBtn.textContent = 'جاري استخراج الشرائح ومعالجة التوقفات...';
+      try {
+        await this.store.applyVideoCuePointsWorkflow(videoAsset, cuePoints, false);
+        closeModal();
+      } catch (err) {
+        applyBtn.disabled = false;
+        updateFooterBtn();
+        this.store.notify(
+          err instanceof Error ? err.message : 'فشل تقسيم الفيديو إلى شرائح',
+          'error'
+        );
       }
     });
   }

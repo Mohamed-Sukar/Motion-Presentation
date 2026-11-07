@@ -1193,3 +1193,201 @@ textarea:focus-visible,
   padding: 12px 0;
 }
 
+/* =========================================================================
+ * Motion-Reel Cue Points Studio Modal & Cue Chips
+ * ========================================================================= */
+.reel-cue-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.76);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  z-index: 2500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.reel-cue-modal {
+  background: var(--surface-window);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.85);
+  width: 100%;
+  max-width: 820px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.reel-cue-modal-header {
+  padding: 14px 18px;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--separator);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reel-modal-header-lead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.reel-modal-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--label-primary);
+  white-space: nowrap;
+}
+
+.reel-modal-badge {
+  font-size: 11.5px;
+  color: var(--label-secondary);
+  background: var(--surface-control);
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--separator-subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+}
+
+.reel-cue-modal-body {
+  padding: 18px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.reel-video-stage {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--separator);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.reel-video-stage video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.reel-cue-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reel-transport-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface-elevated);
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--separator-subtle);
+}
+
+.reel-quick-splits {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.reel-cues-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.reel-cues-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 48px;
+  padding: 10px;
+  background: var(--surface-elevated);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--separator-subtle);
+  align-items: center;
+}
+
+.cue-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  background: var(--surface-control);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.cue-chip:hover {
+  border-color: var(--accent);
+  background: var(--surface-control-hover);
+}
+
+.cue-chip-label {
+  font-size: 11.5px;
+  color: var(--label-secondary);
+}
+
+.cue-chip-time {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--signal-film);
+}
+
+.cue-chip-del {
+  background: transparent;
+  border: none;
+  color: var(--label-tertiary);
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-inline-start: 4px;
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.cue-chip-del:hover {
+  color: var(--signal-danger);
+  background: var(--signal-danger-soft);
+}
+
+.cue-chip-del svg {
+  width: 12px;
+  height: 12px;
+}
+
+.reel-cue-modal-footer {
+  padding: 12px 18px;
+  background: rgba(255, 255, 255, 0.03);
+  border-top: 1px solid var(--separator);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+

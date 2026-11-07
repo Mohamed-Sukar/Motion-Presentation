@@ -549,6 +549,82 @@ console.log('[Test 14] StagePlaybackEngine Global Reverse Frame Cache and Projec
   console.log('✓ StagePlaybackEngine Global Reverse Frame Cache and Project Load Preservation passed');
 }
 
+// 15. Test TransitionSpec startTimeSec & endTimeSec Serialization and Segment Progress Math
+console.log('[Test 15] TransitionSpec startTimeSec & endTimeSec Serialization and Segment Progress Math');
+{
+  const sampleJson = JSON.stringify({
+    version: '1.0.0',
+    title: 'عرض تجريبي لاختبار شرائح الوقت',
+    slides: [
+      {
+        index: 1,
+        title: 'شريحة البداية',
+        imageFileName: 'slide_01.png',
+        transitionToNext: {
+          hasCustomVideo: true,
+          videoFileName: 'full_reel.mp4',
+          startTimeSec: 1.5,
+          endTimeSec: 4.0,
+          playbackSpeed: 1.0,
+          muted: true,
+          fallbackStyle: 'crossfade',
+          fallbackDurationMs: 650,
+        },
+      },
+      {
+        index: 2,
+        title: 'شريحة النهاية',
+        imageFileName: 'slide_02.png',
+        transitionToNext: {
+          hasCustomVideo: false,
+          fallbackStyle: 'cut',
+        },
+      },
+    ],
+  });
+
+  const parsed = ProjectSerializer.deserializeProject(sampleJson);
+  assert.equal(parsed.slidesData[0].transitionToNext?.startTimeSec, 1.5, 'Deserialized startTimeSec mismatch');
+  assert.equal(parsed.slidesData[0].transitionToNext?.endTimeSec, 4.0, 'Deserialized endTimeSec mismatch');
+
+  const store = new PresentationStore();
+  store.loadProjectFromManifest(parsed);
+  const slides = store.getSlides();
+  assert.equal(slides.length, 2, 'Loaded slides count mismatch');
+  assert.equal(slides[0].transitionToNext.startTimeSec, 1.5, 'Preserved startTimeSec mismatch on store slide');
+  assert.equal(slides[0].transitionToNext.endTimeSec, 4.0, 'Preserved endTimeSec mismatch on store slide');
+
+  const clipDuration = (slides[0].transitionToNext.endTimeSec! - slides[0].transitionToNext.startTimeSec!);
+  assert.equal(clipDuration, 2.5, 'Calculated segment clip duration mismatch');
+
+  console.log('✓ TransitionSpec startTimeSec & endTimeSec Serialization and Segment Progress Math passed');
+}
+
+// 16. Test SmartPairer.normalizeCuePoints for Motion-Reel Workflow
+console.log('[Test 16] SmartPairer.normalizeCuePoints for Motion-Reel Workflow');
+{
+  const normalized = SmartPairer.normalizeCuePoints([5.0, 0, 2.5, 2.52, -1, 12], 10.0);
+  assert.deepEqual(
+    normalized,
+    [0, 2.5, 5, 10],
+    `Expected [0, 2.5, 5, 10], got ${JSON.stringify(normalized)}`
+  );
+
+  // Test empty array edge case
+  const emptyNorm = SmartPairer.normalizeCuePoints([], 10.0);
+  assert.deepEqual(emptyNorm, [0, 10], 'Empty input should fallback to [0, duration]');
+
+  // Test single point edge case (< half duration)
+  const singleLow = SmartPairer.normalizeCuePoints([2.0], 10.0);
+  assert.deepEqual(singleLow, [2.0, 10], 'Single low point should be [point, duration]');
+
+  // Test single point edge case (>= half duration)
+  const singleHigh = SmartPairer.normalizeCuePoints([7.5], 10.0);
+  assert.deepEqual(singleHigh, [0, 7.5], 'Single high point should be [0, point]');
+
+  console.log('✓ SmartPairer.normalizeCuePoints for Motion-Reel Workflow passed');
+}
+
 console.log('\n=======================================');
-console.log('ALL VERIFICATION TESTS PASSED (14/14)!');
+console.log('ALL VERIFICATION TESTS PASSED (16/16)!');
 console.log('=======================================');
