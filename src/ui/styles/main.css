@@ -1,0 +1,1195 @@
+:root {
+  /* Apple Pro Studio Dark Palette (Keynote / Final Cut Pro neutral carbon) */
+  --surface-canvas: #0c0c0e;
+  --surface-window: #161618;
+  --surface-elevated: #212124;
+  --surface-control: #2c2c30;
+  --surface-control-hover: #36363b;
+  --surface-control-active: #404046;
+
+  /* Liquid Glass functional layer tokens (liquid-glass.md) */
+  --glass-bg: rgba(28, 28, 32, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-blur: blur(24px) saturate(1.4);
+
+  /* Hairline dividers (split-views.md: 1pt thin divider) */
+  --separator: rgba(255, 255, 255, 0.09);
+  --separator-subtle: rgba(255, 255, 255, 0.05);
+
+  /* Typography Hierarchy with verified WCAG AA/AAA contrast on #161618 & #212124 */
+  --label-primary: #f5f5f7;   /* 16.4:1 on #161618 */
+  --label-secondary: #aeaeb2; /* 8.2:1 on #161618 */
+  --label-tertiary: #8e8e93;  /* 5.3:1 on #161618 (meets 4.5:1 AA for small text) */
+
+  /* Semantic Accent & Signal Colors (color.md: one color = one meaning) */
+  --accent: #0a84ff;
+  --accent-hover: #2090ff;
+  --accent-Pressed: #0070e0;
+  --accent-soft: rgba(10, 132, 255, 0.16);
+
+  --signal-film: #ffd60a;     /* 12.8:1 on #161618 — Motion Transition Video signal */
+  --signal-film-soft: rgba(255, 214, 10, 0.12);
+  --signal-live: #30d158;     /* Active stage hold indicator */
+  --signal-danger: #ff453a;   /* Destructive action role */
+  --signal-danger-soft: rgba(255, 69, 58, 0.14);
+
+  /* Typography Stacks (typography.md) */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Arabic', 'Cairo', 'Inter', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Concentric Radii */
+  --radius-xs: 5px;
+  --radius-sm: 7px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+}
+
+/* Accessibility: Increased Contrast & Reduced Transparency (accessibility.md, liquid-glass.md) */
+@media (prefers-contrast: more) {
+  :root {
+    --separator: rgba(255, 255, 255, 0.26);
+    --label-secondary: #d1d1d6;
+    --label-tertiary: #aeaeb2;
+    --glass-border: rgba(255, 255, 255, 0.35);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-bg: #1f1f23;
+    --glass-blur: none;
+  }
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--surface-window);
+  color: var(--label-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Keyboard Focus Ring (color.md › keyboardFocusIndicatorColor) */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+#app {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* =========================================================================
+ * 1. INTEGRATED WINDOW TOOLBAR (toolbars.md)
+ * Three distinct groupings: Leading (Sidebar + Document Title), Center (Tools), Trailing (Inspector + Primary Play)
+ * ========================================================================= */
+.window-toolbar {
+  height: 50px;
+  background: var(--surface-window);
+  border-bottom: 1px solid var(--separator);
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 0 14px;
+  gap: 12px;
+  flex-shrink: 0;
+  z-index: 30;
+}
+
+.toolbar-group-leading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.toolbar-group-center {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar-group-trailing {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--separator);
+  margin: 0 2px;
+}
+
+/* Document Title Inline Field (toolbars.md › Titles) */
+.doc-title-input {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--label-primary);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: var(--radius-xs);
+  width: 210px;
+  max-width: 100%;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.doc-title-input:hover {
+  background: var(--surface-elevated);
+}
+
+.doc-title-input:focus {
+  background: var(--surface-canvas);
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* Standard Push Buttons & Toolbar Items (buttons.md › Desktop (macOS), accessibility.md >=28pt) */
+.btn {
+  min-height: 28px;
+  padding: 0 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--surface-control);
+  color: var(--label-primary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.12s ease, transform 0.08s ease;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--surface-control-hover);
+}
+
+.btn:active:not(:disabled) {
+  background: var(--surface-control-active);
+  transform: scale(0.985);
+}
+
+.btn:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+/* Borderless Toolbar Symbol/Action Button (toolbars.md › Actions) */
+.btn-toolbar {
+  background: transparent;
+  border-color: transparent;
+  color: var(--label-primary);
+  padding: 0 10px;
+}
+
+.btn-toolbar:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.btn-toolbar:active:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.btn-toolbar.active-pane {
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--label-primary);
+}
+
+.btn-icon-only {
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+}
+
+/* Single Prominent Action per view (buttons.md › Style, toolbars.md › Actions) */
+.btn-prominent {
+  background: var(--accent);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  font-weight: 600;
+  padding: 0 14px;
+}
+
+.btn-prominent:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-prominent:active:not(:disabled) {
+  background: var(--accent-Pressed);
+}
+
+/* Destructive Role Button (buttons.md › Role) */
+.btn-destructive {
+  background: var(--signal-danger-soft);
+  border-color: rgba(255, 69, 58, 0.28);
+  color: #ff6961;
+}
+
+.btn-destructive:hover:not(:disabled) {
+  background: rgba(255, 69, 58, 0.24);
+}
+
+/* =========================================================================
+ * 2. THREE-PANE SPLIT VIEW (split-views.md)
+ * Leading Navigator | Center Stage Canvas | Trailing Inspector
+ * ========================================================================= */
+.split-view {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface-canvas);
+}
+
+/* Leading Pane: Keynote Slide Navigator + Magnetic Filmstrip Bridge */
+.navigator-pane {
+  width: 288px;
+  flex-shrink: 0;
+  background: var(--surface-window);
+  border-left: 1px solid var(--separator);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  transition: width 0.2s ease;
+}
+
+.navigator-pane.collapsed {
+  display: none;
+}
+
+.pane-subheader {
+  height: 36px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--separator-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--label-secondary);
+}
+
+.tabular-nums {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.navigator-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 12px 28px;
+  display: flex;
+  flex-direction: column;
+}
+
+.navigator-list::-webkit-scrollbar,
+.inspector-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.navigator-list::-webkit-scrollbar-thumb,
+.inspector-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 3px;
+}
+
+/* Keynote-style Slide Row: Number in gutter + 16:9 thumbnail card */
+.slide-nav-item {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  align-items: start;
+  gap: 8px;
+  padding: 6px 6px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+  position: relative;
+}
+
+.slide-nav-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.slide-nav-item.selected {
+  background: var(--accent-soft);
+}
+
+.slide-gutter-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-top: 4px;
+}
+
+.slide-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--label-secondary);
+}
+
+.slide-nav-item.selected .slide-num {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.live-stage-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--signal-live);
+  box-shadow: 0 0 6px var(--signal-live);
+}
+
+.slide-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.slide-thumb-frame {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  position: relative;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.slide-nav-item.selected .slide-thumb-frame {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.slide-thumb-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Hover Quick Actions on Slide Thumbnail */
+.slide-hover-actions {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  display: flex;
+  gap: 3px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  background: rgba(12, 12, 14, 0.78);
+  backdrop-filter: blur(8px);
+  padding: 2px;
+  border-radius: var(--radius-xs);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.slide-nav-item:hover .slide-hover-actions,
+.slide-nav-item:focus-within .slide-hover-actions {
+  opacity: 1;
+}
+
+.mini-action-btn {
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--label-primary);
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.mini-action-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.mini-action-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.slide-caption-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 2px;
+}
+
+.slide-caption-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--label-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.slide-caption-meta {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--label-tertiary);
+  flex-shrink: 0;
+}
+
+/* SIGNATURE ELEMENT: The Magnetic Filmstrip Transition Bridge */
+.filmstrip-bridge {
+  margin-inline-start: 38px;
+  margin-inline-end: 0;
+  padding: 4px 8px;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* Vertical connecting stem aligned with thumbnail edge */
+.filmstrip-bridge::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  inset-inline-start: -20px;
+  width: 1.5px;
+  background: var(--separator);
+}
+
+.filmstrip-bridge.has-video::before {
+  background: rgba(255, 214, 10, 0.38);
+}
+
+.filmstrip-pill {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 9px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-elevated);
+  border: 1px solid var(--separator);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.filmstrip-pill:hover {
+  background: var(--surface-control);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.filmstrip-bridge.has-video .filmstrip-pill {
+  background: rgba(255, 214, 10, 0.06);
+  border-color: rgba(255, 214, 10, 0.26);
+}
+
+.filmstrip-bridge.selected .filmstrip-pill {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1.5px var(--accent);
+  background: var(--accent-soft);
+}
+
+.filmstrip-pill-lead {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 1;
+}
+
+.filmstrip-dual-thumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: #000;
+  padding: 1.5px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 214, 10, 0.4);
+  flex-shrink: 0;
+}
+
+.filmstrip-dual-thumb img {
+  width: 22px;
+  height: 14px;
+  object-fit: cover;
+  border-radius: 2px;
+}
+
+.filmstrip-icon-badge {
+  color: var(--label-secondary);
+  display: inline-flex;
+  align-items: center;
+}
+
+.filmstrip-bridge.has-video .filmstrip-icon-badge {
+  color: var(--signal-film);
+}
+
+.filmstrip-text {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--label-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.filmstrip-bridge.has-video .filmstrip-text {
+  color: var(--label-primary);
+}
+
+.filmstrip-timecode {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--signal-film);
+  background: var(--signal-film-soft);
+  padding: 1px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.filmstrip-fallback-tag {
+  font-size: 11px;
+  color: var(--label-tertiary);
+  flex-shrink: 0;
+}
+
+/* =========================================================================
+ * 3. CENTER PANE: STAGE CANVAS & FLOATING LIQUID GLASS HUD
+ * ========================================================================= */
+.stage-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-canvas);
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  padding: 28px 36px 76px;
+}
+
+.stage-canvas-frame {
+  position: relative;
+  max-width: 100%;
+  max-height: calc(100vh - 160px);
+  width: min(100%, calc((100vh - 160px) * (16 / 9)));
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.stage-canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  cursor: pointer;
+}
+
+/* Floating Liquid Glass Playback Bar (liquid-glass.md: floating functional layer only) */
+.floating-stage-hud {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 40px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 25;
+}
+
+.hud-transport-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--label-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.12s;
+}
+
+.hud-transport-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.hud-transport-btn:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+
+.hud-step-btn {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--label-primary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: background-color 0.12s;
+}
+
+.hud-step-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.hud-step-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.hud-status-readout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--label-secondary);
+}
+
+.hud-phase-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--signal-live);
+}
+
+.hud-phase-dot.transitioning {
+  background: var(--signal-film);
+  box-shadow: 0 0 8px var(--signal-film);
+}
+
+/* Empty Stage State (onboarding.md: teach through action, clean & quiet) */
+.empty-canvas-sheet {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  z-index: 15;
+}
+
+.empty-sheet-card {
+  max-width: 440px;
+  width: 100%;
+  background: var(--surface-window);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-lg);
+  padding: 28px 26px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
+}
+
+.empty-sheet-card.drag-over {
+  border-color: var(--accent);
+  background: var(--surface-elevated);
+}
+
+.empty-symbol-circle {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--separator);
+  color: var(--label-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.empty-heading {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--label-primary);
+}
+
+.empty-copy {
+  font-size: 12.5px;
+  color: var(--label-secondary);
+  line-height: 1.6;
+}
+
+.empty-meta-line {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--label-tertiary);
+}
+
+.empty-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+/* =========================================================================
+ * 4. TRAILING PANE: INSPECTOR & SEGMENTED CONTROL (segmented-controls.md)
+ * ========================================================================= */
+.inspector-pane {
+  width: 310px;
+  flex-shrink: 0;
+  background: var(--surface-window);
+  border-right: 1px solid var(--separator);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.inspector-pane.collapsed {
+  display: none;
+}
+
+.segmented-control-wrap {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--separator);
+}
+
+/* macOS NSSegmentedControl (equal-width text-only noun labels) */
+.segmented-control {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  background: var(--surface-canvas);
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--separator-subtle);
+}
+
+.segment-btn {
+  height: 26px;
+  border: none;
+  background: transparent;
+  color: var(--label-secondary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: background-color 0.12s, color 0.12s;
+}
+
+.segment-btn:hover:not(:disabled):not(.active) {
+  color: var(--label-primary);
+}
+
+.segment-btn.active {
+  background: var(--surface-control);
+  color: var(--label-primary);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.segment-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.inspector-scroll {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* macOS Inspector Groups with 1px Hairline Dividers (boxes.md / layout.md) */
+.inspector-group {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--separator);
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.inspector-group-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--label-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.prop-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.prop-row-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 28px;
+}
+
+.prop-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--label-primary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.prop-subtext {
+  font-size: 11.5px;
+  color: var(--label-tertiary);
+  line-height: 1.45;
+}
+
+.input-field,
+.select-field,
+.textarea-field {
+  width: 100%;
+  min-height: 28px;
+  background: var(--surface-elevated);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-xs);
+  color: var(--label-primary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  padding: 5px 9px;
+}
+
+.input-field:focus,
+.select-field:focus,
+.textarea-field:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* Filmstrip First -> Last Frame Inspector Preview */
+.inspector-filmstrip-box {
+  background: var(--surface-canvas);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.inspector-frame-pair {
+  display: grid;
+  grid-template-columns: 1fr 20px 1fr;
+  align-items: center;
+  gap: 6px;
+}
+
+.inspector-frame-cell {
+  text-align: center;
+}
+
+.inspector-frame-cell img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: block;
+}
+
+.inspector-frame-cell span {
+  display: block;
+  font-size: 11px;
+  color: var(--label-secondary);
+  margin-top: 4px;
+}
+
+.slider-control-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.slider-control-row input[type='range'] {
+  flex: 1;
+  accent-color: var(--accent);
+  height: 4px;
+}
+
+/* Subtle Inline Status Banner (feedback.md: non-intrusive feedback) */
+.status-toast {
+  position: fixed;
+  top: 62px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 950;
+  padding: 7px 16px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  color: var(--label-primary);
+  font-size: 12.5px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+
+.status-toast-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.status-toast.success .status-toast-dot {
+  background: var(--signal-live);
+}
+.status-toast.warning .status-toast-dot {
+  background: var(--signal-film);
+}
+.status-toast.error .status-toast-dot {
+  background: var(--signal-danger);
+}
+
+/* =========================================================================
+ * 5. FULLSCREEN PRESENTATION STAGE (going-full-screen.md, liquid-glass.md)
+ * ========================================================================= */
+.fullscreen-presenter {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.fullscreen-presenter.hide-cursor {
+  cursor: none;
+}
+
+.presenter-canvas {
+  width: 100vw;
+  height: 100vh;
+  object-fit: contain;
+  display: block;
+}
+
+.presenter-hud {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 42px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  background: rgba(20, 20, 24, 0.68);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--label-primary);
+  font-size: 12.5px;
+  transition: opacity 0.25s ease;
+  z-index: 2010;
+}
+
+.fullscreen-presenter.hide-cursor .presenter-hud {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.presenter-top-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  z-index: 2010;
+}
+
+.presenter-top-progress-bar {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.15s ease;
+}
+
+/* Slide Switcher Sheet ('G' key in Presenter) */
+.slide-grid-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(12, 12, 14, 0.88);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  z-index: 2050;
+  padding: 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  overflow-y: auto;
+}
+
+.grid-cards-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 16px;
+}
+
+.grid-jump-card {
+  background: var(--surface-elevated);
+  border: 1.5px solid var(--separator);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.grid-jump-card:hover,
+.grid-jump-card.active {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.grid-jump-card img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  display: block;
+}
+
+.grid-jump-card-title {
+  padding: 8px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--label-primary);
+}
+
+/* Presenter Notes Drawer */
+.presenter-notes-drawer {
+  position: fixed;
+  top: 24px;
+  inset-inline-end: 24px;
+  width: 340px;
+  max-height: calc(100vh - 120px);
+  background: rgba(20, 20, 24, 0.85);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  z-index: 2020;
+  overflow: hidden;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.presenter-notes-drawer.hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-8px);
+}
+
+.presenter-notes-header {
+  height: 38px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--separator-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--label-primary);
+}
+
+.presenter-notes-body {
+  padding: 14px;
+  overflow-y: auto;
+  max-height: 400px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--label-primary);
+}
+
+.presenter-notes-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.presenter-notes-empty {
+  margin: 0;
+  color: var(--label-tertiary);
+  font-style: italic;
+  text-align: center;
+  padding: 12px 0;
+}
+

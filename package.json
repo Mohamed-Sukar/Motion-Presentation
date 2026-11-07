@@ -1,0 +1,20 @@
+{
+  "name": "motion-presentation-studio",
+  "version": "1.0.0",
+  "description": "Zero-Flicker Motion Graphics Presentation Studio & Player for PC",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5175",
+    "build": "tsc && vite build",
+    "test": "npx tsx scripts/verify-all.ts",
+    "preview": "vite preview --port 5175",
+    "electron:dev": "electron .",
+    "start": "vite --port 5175 --open"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.1"
+  }
+}
