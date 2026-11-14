@@ -2,11 +2,18 @@ import {
   EngineStatus,
   FallbackTransitionStyle,
   PresentationSettings,
+  SegmentEasing,
   SlideNode,
   TransitionSpec,
 } from '../domain/types';
+import { t } from '../i18n';
 
 export type EngineStatusListener = (status: EngineStatus) => void;
+
+const MAX_REVERSE_CACHE_ENTRIES = 24;
+const MAX_RECORDED_REVERSE_FRAMES = 60;
+const MAX_REVERSE_FRAME_DIM = 1280;
+const MAX_PREWARM_FRAME_DIM = 960;
 
 export class StagePlaybackEngine {
   private canvas: HTMLCanvasElement;
@@ -14,8 +21,11 @@ export class StagePlaybackEngine {
   private slides: SlideNode[] = [];
   private settings: PresentationSettings;
 
-  private imageCache = new Map<string, HTMLImageElement>();
-  private videoCache = new Map<string, HTMLVideoElement>();
+  private imageCache = new Map<string, { url: string; img: HTMLImageElement }>();
+  private videoCache = new Map<string, { url: string; video: HTMLVideoElement }>();
+  private inflightImages = new Map<string, Promise<HTMLImageElement>>();
+  private inflightVideos = new Map<string, Promise<HTMLVideoElement>>();
+  private prewarmInFlight = new Map<string, Promise<void>>();
   private reverseFrameCache = new Map<string, (ImageBitmap | HTMLCanvasElement)[]>();
   private static globalReverseFrameCache = new Map<string, (ImageBitmap | HTMLCanvasElement)[]>();
 
@@ -23,6 +33,10 @@ export class StagePlaybackEngine {
     key: string,
     frames: (ImageBitmap | HTMLCanvasElement)[]
   ): void {
+    const existing = StagePlaybackEngine.globalReverseFrameCache.get(key);
+    if (existing && existing !== frames) {
+      StagePlaybackEngine.disposeFrameArray(existing);
+    }
     StagePlaybackEngine.globalReverseFrameCache.set(key, frames);
   }
 
@@ -32,18 +46,37 @@ export class StagePlaybackEngine {
     return StagePlaybackEngine.globalReverseFrameCache.get(key);
   }
 
-  static clearGlobalReverseFrameCache(): void {
-    for (const [, frames] of StagePlaybackEngine.globalReverseFrameCache.entries()) {
-      for (const f of frames) {
-        if ('close' in f && typeof f.close === 'function') {
-          f.close();
-        } else if (f instanceof HTMLCanvasElement) {
-          f.width = 0;
-          f.height = 0;
-        }
+  static invalidateReverseFrames(keys: string[]): void {
+    for (const key of keys) {
+      const frames = StagePlaybackEngine.globalReverseFrameCache.get(key);
+      if (frames) {
+        StagePlaybackEngine.disposeFrameArray(frames);
+        StagePlaybackEngine.globalReverseFrameCache.delete(key);
       }
     }
+  }
+
+  static clearGlobalReverseFrameCache(): void {
+    for (const [, frames] of StagePlaybackEngine.globalReverseFrameCache.entries()) {
+      StagePlaybackEngine.disposeFrameArray(frames);
+    }
     StagePlaybackEngine.globalReverseFrameCache.clear();
+  }
+
+  private static disposeFrameArray(frames: (ImageBitmap | HTMLCanvasElement)[]): void {
+    for (const f of frames) {
+      if (!f) continue;
+      if ('close' in f && typeof f.close === 'function') {
+        try {
+          f.close();
+        } catch {
+          // ignore already closed ImageBitmap
+        }
+      } else if (typeof HTMLCanvasElement !== 'undefined' && f instanceof HTMLCanvasElement) {
+        f.width = 0;
+        f.height = 0;
+      }
+    }
   }
 
   private status: EngineStatus = {
@@ -55,6 +88,8 @@ export class StagePlaybackEngine {
     activeTransitionHasVideo: false,
     isFastForwarding: false,
     errorMessage: null,
+    currentVideoTimeSec: null,
+    segmentRangeSec: null,
   };
 
   private listeners = new Set<EngineStatusListener>();
@@ -64,12 +99,15 @@ export class StagePlaybackEngine {
   private holdTimerId: number | null = null;
   private preBlackoutPhase: 'HOLDING_SLIDE' | 'IDLE' = 'HOLDING_SLIDE';
   private isTransitionReverse = false;
+  private playbackEpoch = 0;
+  private loadEpoch = 0;
+  private destroyed = false;
 
   constructor(canvas: HTMLCanvasElement, initialSettings: PresentationSettings) {
     this.canvas = canvas;
     const context = canvas.getContext('2d', { alpha: false });
     if (!context) {
-      throw new Error('تعذر تهيئة محرك الرسم ثنائي الأبعاد (Canvas 2D)');
+      throw new Error(t('core.canvas2dInitFailed'));
     }
     this.ctx = context;
     this.settings = initialSettings;
@@ -83,10 +121,21 @@ export class StagePlaybackEngine {
   }
 
   getStatus(): EngineStatus {
-    return { ...this.status };
+    return {
+      ...this.status,
+      segmentRangeSec: this.status.segmentRangeSec ? { ...this.status.segmentRangeSec } : null,
+    };
+  }
+
+  getActiveVideoTimeSec(): number | null {
+    if (this.activeVideo && Number.isFinite(this.activeVideo.currentTime)) {
+      return this.activeVideo.currentTime;
+    }
+    return this.status.currentVideoTimeSec ?? null;
   }
 
   private emitStatus(patch?: Partial<EngineStatus>): void {
+    if (this.destroyed) return;
     if (patch) {
       this.status = { ...this.status, ...patch };
     }
@@ -112,15 +161,22 @@ export class StagePlaybackEngine {
     this.ctx.imageSmoothingQuality = 'high';
   }
 
+  resize(): void {
+    this.syncCanvasResolution();
+  }
+
   async loadProject(
     slides: SlideNode[],
     settings: PresentationSettings,
     startIndex = 0
   ): Promise<void> {
+    if (this.destroyed) return;
+    const myLoadEpoch = ++this.loadEpoch;
     this.stopCurrentAnimation();
     this.slides = slides;
     this.settings = settings;
     this.syncCanvasResolution();
+    this.evictStaleMediaCaches();
     this.cleanUnusedReverseFrameCache();
 
     if (slides.length === 0) {
@@ -133,6 +189,8 @@ export class StagePlaybackEngine {
         preloadProgress: 0,
         activeTransitionHasVideo: false,
         isFastForwarding: false,
+        currentVideoTimeSec: null,
+        segmentRangeSec: null,
       });
       return;
     }
@@ -144,74 +202,78 @@ export class StagePlaybackEngine {
       targetSlideIndex: null,
       preloadProgress: 0,
       errorMessage: null,
+      currentVideoTimeSec: null,
+      segmentRangeSec: null,
     });
 
     if (this.settings.preloadStrategy === 'adjacent') {
-      const indicesToWarm = new Set<number>();
-      indicesToWarm.add(clampedStart);
-      if (clampedStart + 1 < slides.length) {
-        indicesToWarm.add(clampedStart + 1);
-      } else if (this.settings.loopPresentation && slides.length > 1) {
-        indicesToWarm.add(0);
-      }
-      if (clampedStart - 1 >= 0) {
-        indicesToWarm.add(clampedStart - 1);
-      } else if (this.settings.loopPresentation && slides.length > 1) {
-        indicesToWarm.add(slides.length - 1);
-      }
-
-      let loadedCount = 0;
-      const totalToWarm = indicesToWarm.size * 2;
+      const indicesToWarm = this.getAdjacentIndices(clampedStart);
+      const uniqueVideoTargets = new Map<string, string>();
       for (const idx of indicesToWarm) {
-        const slide = slides[idx];
-        if (slide) {
-          await this.ensureImageLoaded(slide.imageAsset.id, slide.imageAsset.objectUrl);
-          loadedCount++;
-          this.emitStatus({
-            preloadProgress: Math.min(1, loadedCount / Math.max(1, totalToWarm)),
-          });
-          if (slide.transitionToNext.videoAsset) {
-            await this.ensureVideoWarmed(
-              slide.transitionToNext.videoAsset.id,
-              slide.transitionToNext.videoAsset.objectUrl
-            );
-            loadedCount++;
-            this.emitStatus({
-              preloadProgress: Math.min(1, loadedCount / Math.max(1, totalToWarm)),
-            });
-          }
+        const vid = slides[idx]?.transitionToNext?.videoAsset;
+        if (vid && !uniqueVideoTargets.has(vid.id)) {
+          uniqueVideoTargets.set(vid.id, vid.objectUrl);
         }
       }
+
+      const totalToWarm = Math.max(1, indicesToWarm.size + uniqueVideoTargets.size);
+      let loadedCount = 0;
+      const bump = () => {
+        loadedCount++;
+        if (myLoadEpoch === this.loadEpoch && !this.destroyed) {
+          this.emitStatus({
+            preloadProgress: Math.min(1, loadedCount / totalToWarm),
+          });
+        }
+      };
+
+      await Promise.all([
+        ...Array.from(indicesToWarm).map(async (idx) => {
+          const slide = slides[idx];
+          if (slide) {
+            await this.ensureImageLoaded(slide.imageAsset.id, slide.imageAsset.objectUrl);
+          }
+          bump();
+        }),
+        ...Array.from(uniqueVideoTargets.entries()).map(async ([vidId, vidUrl]) => {
+          await this.ensureVideoWarmed(vidId, vidUrl);
+          bump();
+        }),
+      ]);
     } else {
-      const totalAssets =
-        slides.length +
-        slides.filter((s) => Boolean(s.transitionToNext.videoAsset)).length;
+      const uniqueVideoTargets = new Map<string, string>();
+      for (const slide of slides) {
+        const vid = slide.transitionToNext.videoAsset;
+        if (vid && !uniqueVideoTargets.has(vid.id)) {
+          uniqueVideoTargets.set(vid.id, vid.objectUrl);
+        }
+      }
+
+      const totalAssets = Math.max(1, slides.length + uniqueVideoTargets.size);
       let loadedCount = 0;
 
       const bumpProgress = () => {
         loadedCount++;
-        this.emitStatus({
-          preloadProgress: Math.min(1, loadedCount / Math.max(1, totalAssets)),
-        });
+        if (myLoadEpoch === this.loadEpoch && !this.destroyed) {
+          this.emitStatus({
+            preloadProgress: Math.min(1, loadedCount / totalAssets),
+          });
+        }
       };
 
-      // Preload all slide images & transition videos
-      await Promise.all(
-        slides.map(async (slide) => {
+      await Promise.all([
+        ...slides.map(async (slide) => {
           await this.ensureImageLoaded(slide.imageAsset.id, slide.imageAsset.objectUrl);
           bumpProgress();
-
-          if (slide.transitionToNext.videoAsset) {
-            await this.ensureVideoWarmed(
-              slide.transitionToNext.videoAsset.id,
-              slide.transitionToNext.videoAsset.objectUrl
-            );
-            bumpProgress();
-          }
-        })
-      );
+        }),
+        ...Array.from(uniqueVideoTargets.entries()).map(async ([vidId, vidUrl]) => {
+          await this.ensureVideoWarmed(vidId, vidUrl);
+          bumpProgress();
+        }),
+      ]);
     }
 
+    if (myLoadEpoch !== this.loadEpoch || this.destroyed) return;
     this.enterHoldSlide(clampedStart);
   }
 
@@ -220,13 +282,20 @@ export class StagePlaybackEngine {
     this.syncCanvasResolution();
     if (this.activeVideo) {
       const currentSlide = this.slides[this.status.currentSlideIndex];
-      const slideMuted = Boolean(currentSlide?.transitionToNext?.muted);
+      const spec = currentSlide?.transitionToNext;
+      const slideMuted = Boolean(spec?.muted);
       this.activeVideo.muted = Boolean(settings.masterMuted || slideMuted);
       const masterVol =
         typeof settings.masterVolume === 'number' && !Number.isNaN(settings.masterVolume)
           ? settings.masterVolume
           : 0.9;
       this.activeVideo.volume = Math.max(0, Math.min(1, masterVol));
+      if (!this.status.isFastForwarding && spec) {
+        this.activeVideo.playbackRate = Math.max(
+          0.25,
+          Math.min(4.0, settings.globalPlaybackSpeed * (spec.playbackSpeed || 1.0))
+        );
+      }
     }
     if (this.status.phase === 'HOLDING_SLIDE') {
       this.drawSlideByIndex(this.status.currentSlideIndex);
@@ -241,12 +310,13 @@ export class StagePlaybackEngine {
    * Primary Presenter Action: Advance to next slide (plays transition video if available)
    */
   next(): void {
-    if (this.slides.length === 0) return;
+    if (this.destroyed) return;
 
-    if (this.status.phase === 'BLACKOUT') {
-      this.toggleBlackout();
+    if (this.clearBlankScreen()) {
       return;
     }
+
+    if (this.slides.length === 0) return;
 
     // Handle click while transition is already playing
     if (this.status.phase === 'PLAYING_TRANSITION') {
@@ -267,7 +337,7 @@ export class StagePlaybackEngine {
       if (behavior === 'fast-forward') {
         if (this.activeVideo) {
           this.activeVideo.playbackRate = Math.min(
-            8.0,
+            6.0,
             this.activeVideo.playbackRate * 3.0
           );
           this.emitStatus({ isFastForwarding: true });
@@ -300,12 +370,13 @@ export class StagePlaybackEngine {
    * Presenter Action: Go back to previous slide
    */
   previous(): void {
-    if (this.slides.length === 0) return;
+    if (this.destroyed) return;
 
-    if (this.status.phase === 'BLACKOUT') {
-      this.toggleBlackout();
+    if (this.clearBlankScreen()) {
       return;
     }
+
+    if (this.slides.length === 0) return;
 
     // If currently mid-transition:
     if (this.status.phase === 'PLAYING_TRANSITION') {
@@ -366,16 +437,16 @@ export class StagePlaybackEngine {
           ? this.settings.defaultFallbackStyle
           : 'zoom-morph';
     const durationMs =
-      spec?.fallbackDurationMs || this.settings.defaultFallbackDurationMs || 500;
+      spec?.fallbackDurationMs ?? this.settings.defaultFallbackDurationMs ?? 500;
 
-    this.runProceduralTransition(currentIdx, prevIdx, style, durationMs, true);
+    this.runProceduralTransition(currentIdx, prevIdx, style, durationMs, true, spec?.easing);
   }
 
   /**
    * Jump directly to any slide index (used by timeline selection or Grid Jump 'G')
    */
   jumpToSlide(index: number, withCrossfade = false): void {
-    if (this.slides.length === 0) return;
+    if (this.slides.length === 0 || this.destroyed) return;
     const target = Math.max(0, Math.min(index, this.slides.length - 1));
     if (withCrossfade && target !== this.status.currentSlideIndex) {
       this.stopCurrentAnimation();
@@ -395,7 +466,7 @@ export class StagePlaybackEngine {
    * Replay the transition from the current slide to the next slide (great for previewing in Studio!)
    */
   previewCurrentTransition(): void {
-    if (this.slides.length === 0) return;
+    if (this.slides.length === 0 || this.destroyed) return;
     const currentIdx = this.status.currentSlideIndex;
     const nextIdx =
       currentIdx + 1 < this.slides.length
@@ -409,7 +480,21 @@ export class StagePlaybackEngine {
     this.startForwardTransition(currentIdx, nextIdx);
   }
 
+  /**
+   * If currently in BLACKOUT or WHITEOUT, return cleanly to the holding slide and return true.
+   * Otherwise returns false.
+   */
+  clearBlankScreen(): boolean {
+    if (this.destroyed) return false;
+    if (this.status.phase === 'BLACKOUT' || this.status.phase === 'WHITEOUT') {
+      this.enterHoldSlide(this.status.currentSlideIndex);
+      return true;
+    }
+    return false;
+  }
+
   toggleBlackout(): void {
+    if (this.destroyed) return;
     if (this.status.phase === 'BLACKOUT') {
       this.enterHoldSlide(this.status.currentSlideIndex);
     } else {
@@ -420,24 +505,69 @@ export class StagePlaybackEngine {
       this.emitStatus({
         phase: 'BLACKOUT',
         transitionProgress: 0,
+        currentVideoTimeSec: null,
+        segmentRangeSec: null,
+      });
+    }
+  }
+
+  toggleWhiteout(): void {
+    if (this.destroyed) return;
+    if (this.status.phase === 'WHITEOUT') {
+      this.enterHoldSlide(this.status.currentSlideIndex);
+    } else {
+      this.stopCurrentAnimation();
+      this.preBlackoutPhase = 'HOLDING_SLIDE';
+      this.ctx.fillStyle = '#ffffff';
+      this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      this.emitStatus({
+        phase: 'WHITEOUT',
+        transitionProgress: 0,
+        currentVideoTimeSec: null,
+        segmentRangeSec: null,
       });
     }
   }
 
   destroy(): void {
+    this.destroyed = true;
+    this.loadEpoch++;
     this.stopCurrentAnimation();
-    this.videoCache.forEach((v) => {
-      v.pause();
-      v.removeAttribute('src');
-      v.load();
+    this.videoCache.forEach(({ video }) => {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
     });
     this.videoCache.clear();
     this.imageCache.clear();
-    this.clearReverseFrameCache();
+    this.inflightImages.clear();
+    this.inflightVideos.clear();
+    this.prewarmInFlight.clear();
+    // Only clear instance-local tracking; never dispose shared globalReverseFrameCache frames
+    // because other StagePlaybackEngine instances (e.g. Studio after Fullscreen closes) use them.
+    this.reverseFrameCache.clear();
     this.listeners.clear();
   }
 
+  private getAdjacentIndices(currentIdx: number): Set<number> {
+    const indices = new Set<number>();
+    if (this.slides.length === 0) return indices;
+    indices.add(currentIdx);
+    if (currentIdx + 1 < this.slides.length) {
+      indices.add(currentIdx + 1);
+    } else if (this.settings.loopPresentation && this.slides.length > 1) {
+      indices.add(0);
+    }
+    if (currentIdx - 1 >= 0) {
+      indices.add(currentIdx - 1);
+    } else if (this.settings.loopPresentation && this.slides.length > 1) {
+      indices.add(this.slides.length - 1);
+    }
+    return indices;
+  }
+
   private enterHoldSlide(slideIndex: number): void {
+    if (this.destroyed) return;
     this.stopCurrentAnimation();
     this.isTransitionReverse = false;
     const clamped = Math.max(0, Math.min(slideIndex, this.slides.length - 1));
@@ -450,10 +580,14 @@ export class StagePlaybackEngine {
       transitionProgress: 0,
       activeTransitionHasVideo: false,
       isFastForwarding: false,
+      currentVideoTimeSec: null,
+      segmentRangeSec: null,
     });
 
     if (this.settings.preloadStrategy === 'adjacent') {
       this.maintainAdjacentCache(clamped);
+    } else {
+      this.warmHoldNeighbors(clamped);
     }
 
     // Check if slide has automatic hold timer
@@ -461,6 +595,7 @@ export class StagePlaybackEngine {
     if (slide && slide.holdDurationSec && slide.holdDurationSec > 0) {
       this.holdTimerId = window.setTimeout(() => {
         if (
+          !this.destroyed &&
           this.status.phase === 'HOLDING_SLIDE' &&
           this.status.currentSlideIndex === clamped
         ) {
@@ -470,60 +605,140 @@ export class StagePlaybackEngine {
     }
   }
 
+  private warmHoldNeighbors(currentIdx: number): void {
+    const holdEpoch = this.playbackEpoch;
+    const currentSlide = this.slides[currentIdx];
+    const nextIdx =
+      currentIdx + 1 < this.slides.length
+        ? currentIdx + 1
+        : this.settings.loopPresentation && this.slides.length > 1
+          ? 0
+          : -1;
+    const prevIdx =
+      currentIdx - 1 >= 0
+        ? currentIdx - 1
+        : this.settings.loopPresentation && this.slides.length > 1
+          ? this.slides.length - 1
+          : -1;
+
+    if (nextIdx !== -1 && this.slides[nextIdx]) {
+      this.ensureImageLoaded(
+        this.slides[nextIdx].imageAsset.id,
+        this.slides[nextIdx].imageAsset.objectUrl
+      ).catch(() => {});
+    }
+
+    // Pre-seek current slide's forward transition video while idle on the static slide
+    if (currentSlide?.transitionToNext?.videoAsset) {
+      const spec = currentSlide.transitionToNext;
+      const vid = spec.videoAsset!;
+      const targetStart =
+        typeof spec.startTimeSec === 'number' && spec.startTimeSec >= 0 ? spec.startTimeSec : 0;
+
+      this.ensureVideoWarmed(vid.id, vid.objectUrl)
+        .then((videoEl) => {
+          if (
+            !this.destroyed &&
+            this.playbackEpoch === holdEpoch &&
+            this.status.phase === 'HOLDING_SLIDE' &&
+            this.activeVideo === null &&
+            videoEl.readyState >= 2 &&
+            Math.abs(videoEl.currentTime - targetStart) > 0.025
+          ) {
+            videoEl.muted = true;
+            try {
+              videoEl.currentTime = targetStart;
+            } catch {
+              // ignore pre-seek error
+            }
+          }
+          if (!this.destroyed && !this.hasReverseFrames(spec.id)) {
+            this.prewarmReverseFrames(
+              spec.id,
+              vid,
+              spec.startTimeSec,
+              spec.endTimeSec,
+              currentIdx,
+              nextIdx
+            ).catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }
+
+    // Ensure previous transition has reverse frames ready even when user jumps directly to a later slide
+    if (prevIdx !== -1 && this.slides[prevIdx]?.transitionToNext?.videoAsset) {
+      const prevSpec = this.slides[prevIdx].transitionToNext;
+      if (!this.hasReverseFrames(prevSpec.id)) {
+        this.prewarmReverseFrames(
+          prevSpec.id,
+          prevSpec.videoAsset!,
+          prevSpec.startTimeSec,
+          prevSpec.endTimeSec,
+          prevIdx,
+          currentIdx
+        ).catch(() => {});
+      }
+    }
+  }
+
+  private evictStaleMediaCaches(): void {
+    const validImageIds = new Set<string>();
+    const validImageUrls = new Map<string, string>();
+    const validVideoIds = new Set<string>();
+    const validVideoUrls = new Map<string, string>();
+
+    for (const s of this.slides) {
+      validImageIds.add(s.imageAsset.id);
+      validImageUrls.set(s.imageAsset.id, s.imageAsset.objectUrl);
+      const v = s.transitionToNext?.videoAsset;
+      if (v) {
+        validVideoIds.add(v.id);
+        validVideoUrls.set(v.id, v.objectUrl);
+      }
+    }
+
+    for (const [imgId, entry] of this.imageCache.entries()) {
+      if (!validImageIds.has(imgId) || validImageUrls.get(imgId) !== entry.url) {
+        this.imageCache.delete(imgId);
+      }
+    }
+
+    for (const [vidId, entry] of this.videoCache.entries()) {
+      if (
+        (!validVideoIds.has(vidId) || validVideoUrls.get(vidId) !== entry.url) &&
+        this.activeVideo !== entry.video
+      ) {
+        entry.video.pause();
+        entry.video.removeAttribute('src');
+        entry.video.load();
+        this.videoCache.delete(vidId);
+      }
+    }
+  }
+
   private maintainAdjacentCache(currentIdx: number): void {
     if (this.slides.length === 0) return;
 
-    const neededSlideIndices = new Set<number>();
-    neededSlideIndices.add(currentIdx);
-    if (currentIdx + 1 < this.slides.length) {
-      neededSlideIndices.add(currentIdx + 1);
-    } else if (this.settings.loopPresentation && this.slides.length > 1) {
-      neededSlideIndices.add(0);
-    }
-    if (currentIdx - 1 >= 0) {
-      neededSlideIndices.add(currentIdx - 1);
-    } else if (this.settings.loopPresentation && this.slides.length > 1) {
-      neededSlideIndices.add(this.slides.length - 1);
-    }
-
+    const neededSlideIndices = this.getAdjacentIndices(currentIdx);
     const neededVideoAssetIds = new Set<string>();
-    const neededTransitionSpecIds = new Set<string>();
     for (const idx of neededSlideIndices) {
       const s = this.slides[idx];
       if (s?.transitionToNext?.videoAsset) {
         neededVideoAssetIds.add(s.transitionToNext.videoAsset.id);
-        neededTransitionSpecIds.add(s.transitionToNext.id);
       }
     }
 
     // Evict unused video elements to prevent hardware decoder exhaustion
-    for (const [vidId, videoEl] of this.videoCache.entries()) {
-      if (!neededVideoAssetIds.has(vidId) && this.activeVideo !== videoEl) {
-        videoEl.pause();
-        videoEl.removeAttribute('src');
-        videoEl.load();
+    for (const [vidId, entry] of this.videoCache.entries()) {
+      if (!neededVideoAssetIds.has(vidId) && this.activeVideo !== entry.video) {
+        entry.video.pause();
+        entry.video.removeAttribute('src');
+        entry.video.load();
         this.videoCache.delete(vidId);
       }
     }
 
-    // Evict reverse frame caches only if cache has grown excessively large (> 16 transitions)
-    if (this.reverseFrameCache.size > 16) {
-      for (const [key, frames] of this.reverseFrameCache.entries()) {
-        if (!neededTransitionSpecIds.has(key) && !neededVideoAssetIds.has(key)) {
-          for (const f of frames) {
-            if ('close' in f && typeof f.close === 'function') {
-              f.close();
-            } else if (f instanceof HTMLCanvasElement) {
-              f.width = 0;
-              f.height = 0;
-            }
-          }
-          this.reverseFrameCache.delete(key);
-        }
-      }
-    }
-
-    // Asynchronously warm adjacent slides
     for (const idx of neededSlideIndices) {
       const s = this.slides[idx];
       if (s) {
@@ -532,14 +747,12 @@ export class StagePlaybackEngine {
           this.ensureVideoWarmed(
             s.transitionToNext.videoAsset.id,
             s.transitionToNext.videoAsset.objectUrl
-          ).then(() => {
-            if (s.transitionToNext.videoAsset && !this.hasReverseFrames(s.transitionToNext.id)) {
-              this.prewarmReverseFrames(s.transitionToNext.id, s.transitionToNext.videoAsset).catch(() => {});
-            }
-          }).catch(() => {});
+          ).catch(() => {});
         }
       }
     }
+
+    this.warmHoldNeighbors(currentIdx);
   }
 
   private startForwardTransition(fromIndex: number, toIndex: number): void {
@@ -552,16 +765,78 @@ export class StagePlaybackEngine {
     const videoAsset = spec.videoAsset;
 
     if (videoAsset) {
-      this.runVideoTransition(fromIndex, toIndex, videoAsset.id, videoAsset.objectUrl);
+      void this.runVideoTransition(fromIndex, toIndex, videoAsset.id, videoAsset.objectUrl);
     } else {
       this.runProceduralTransition(
         fromIndex,
         toIndex,
         spec.fallbackStyle || this.settings.defaultFallbackStyle,
-        spec.fallbackDurationMs || this.settings.defaultFallbackDurationMs,
-        false
+        spec.fallbackDurationMs ?? this.settings.defaultFallbackDurationMs,
+        false,
+        spec.easing
       );
     }
+  }
+
+  private seekVideoExact(
+    video: HTMLVideoElement,
+    targetTimeSec: number,
+    expectedEpoch: number,
+    timeoutMs = 1400
+  ): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (this.destroyed || this.playbackEpoch !== expectedEpoch) {
+        resolve(false);
+        return;
+      }
+
+      const maxSafe =
+        Number.isFinite(video.duration) && video.duration > 0
+          ? Math.max(0, video.duration - 0.002)
+          : Math.max(0, targetTimeSec);
+      const clamped = Math.max(0, Math.min(targetTimeSec, maxSafe));
+
+      if (
+        !video.seeking &&
+        video.readyState >= 2 &&
+        Math.abs(video.currentTime - clamped) <= 0.008
+      ) {
+        resolve(true);
+        return;
+      }
+
+      let done = false;
+      let timer: number | null = null;
+
+      const finish = (ok: boolean) => {
+        if (done) return;
+        done = true;
+        if (timer !== null) {
+          window.clearTimeout(timer);
+          timer = null;
+        }
+        video.removeEventListener('seeked', onSeeked);
+        video.removeEventListener('error', onError);
+        resolve(ok && !this.destroyed && this.playbackEpoch === expectedEpoch);
+      };
+
+      const onSeeked = () => finish(true);
+      const onError = () => finish(false);
+
+      video.addEventListener('seeked', onSeeked, { once: true });
+      video.addEventListener('error', onError, { once: true });
+
+      timer = window.setTimeout(() => {
+        finish(video.readyState >= 2);
+      }, timeoutMs);
+
+      try {
+        video.muted = true;
+        video.currentTime = clamped;
+      } catch {
+        finish(false);
+      }
+    });
   }
 
   private async runVideoTransition(
@@ -570,17 +845,69 @@ export class StagePlaybackEngine {
     videoAssetId: string,
     videoObjectUrl: string
   ): Promise<void> {
+    const epoch = this.playbackEpoch;
     const fromSlide = this.slides[fromIndex];
-    const spec = fromSlide.transitionToNext;
+    const toSlide = this.slides[toIndex];
+    if (!fromSlide) return;
 
-    // Time-slice / cue-point segment support: a single continuous video can play
-    // a [startTimeSec, endTimeSec] sub-range between slides without flicker.
+    const spec = fromSlide.transitionToNext;
     const startTime =
-      typeof spec.startTimeSec === 'number' && spec.startTimeSec >= 0
+      typeof spec.startTimeSec === 'number' && Number.isFinite(spec.startTimeSec) && spec.startTimeSec >= 0
         ? spec.startTimeSec
         : 0;
+    const hasExplicitEnd =
+      typeof spec.endTimeSec === 'number' && Number.isFinite(spec.endTimeSec);
 
-    const video = await this.ensureVideoWarmed(videoAssetId, videoObjectUrl);
+    // Handle invalid or zero-length explicit cue segment immediately without playing full video
+    if (hasExplicitEnd && spec.endTimeSec! <= startTime + 0.03) {
+      this.completeTransitionImmediately(toIndex);
+      return;
+    }
+
+    const expectedEnd = hasExplicitEnd
+      ? spec.endTimeSec!
+      : (spec.videoAsset?.durationSec && spec.videoAsset.durationSec > startTime
+          ? spec.videoAsset.durationSec
+          : startTime + 1);
+
+    // Emit PLAYING_TRANSITION immediately so interruptBehavior works during warmup/seek
+    this.drawSlideByIndex(fromIndex);
+    this.emitStatus({
+      phase: 'PLAYING_TRANSITION',
+      currentSlideIndex: fromIndex,
+      targetSlideIndex: toIndex,
+      transitionProgress: 0,
+      activeTransitionHasVideo: true,
+      isFastForwarding: false,
+      currentVideoTimeSec: startTime,
+      segmentRangeSec: { start: startTime, end: expectedEnd },
+    });
+
+    // Concurrently warm the video decoder AND destination slide image before playback begins
+    const [video] = await Promise.all([
+      this.ensureVideoWarmed(videoAssetId, videoObjectUrl),
+      toSlide
+        ? this.ensureImageLoaded(toSlide.imageAsset.id, toSlide.imageAsset.objectUrl).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+
+    if (this.destroyed || epoch !== this.playbackEpoch) return;
+
+    // Seek cleanly while muted BEFORE unmuting & playing to eliminate flicker/audio glitches
+    const seekOk = await this.seekVideoExact(video, startTime, epoch);
+    if (this.destroyed || epoch !== this.playbackEpoch) return;
+
+    if (!seekOk && video.readyState < 2) {
+      this.runProceduralTransition(
+        fromIndex,
+        toIndex,
+        spec.fallbackStyle || 'crossfade',
+        spec.fallbackDurationMs ?? 650,
+        false
+      );
+      return;
+    }
+
     this.activeVideo = video;
 
     const effectiveSpeed = Math.max(
@@ -595,75 +922,92 @@ export class StagePlaybackEngine {
         ? this.settings.masterVolume
         : 0.9;
     video.volume = Math.max(0, Math.min(1, masterVol));
-    video.currentTime = startTime;
 
     const recordedFrames: (ImageBitmap | HTMLCanvasElement)[] = [];
-    let lastRecordedTime = -1;
+    let lastRecordedTime = -Infinity;
 
-    // Capture starting frame (Slide 1) as frame 0 of the recorded frames
-    if (fromSlide) {
-      const fromImg = this.imageCache.get(fromSlide.imageAsset.id);
-      if (fromImg && fromImg.complete && fromImg.naturalWidth > 0) {
-        const s1Canvas = document.createElement('canvas');
-        s1Canvas.width = this.canvas.width;
-        s1Canvas.height = this.canvas.height;
-        const s1Ctx = s1Canvas.getContext('2d');
-        if (s1Ctx) {
-          this.drawMediaElement(fromImg, fromImg.naturalWidth, fromImg.naturalHeight);
-          s1Ctx.drawImage(this.canvas, 0, 0);
-          recordedFrames.push(s1Canvas);
-        }
+    // Determine reverse frame capture budget (bounded RAM)
+    const fullDurationEstimate =
+      Number.isFinite(video.duration) && video.duration > 0
+        ? video.duration
+        : spec.videoAsset?.durationSec && spec.videoAsset.durationSec > 0
+          ? spec.videoAsset.durationSec
+          : expectedEnd;
+    const estEnd = hasExplicitEnd
+      ? Math.min(fullDurationEstimate, spec.endTimeSec!)
+      : fullDurationEstimate;
+    const estSegDur = Math.max(0.05, estEnd - startTime);
+    const captureIntervalSec = Math.max(1 / 30, estSegDur / MAX_RECORDED_REVERSE_FRAMES);
+
+    const recordScale = Math.min(
+      1,
+      MAX_REVERSE_FRAME_DIM / Math.max(this.canvas.width, this.canvas.height)
+    );
+    const recW = Math.max(1, Math.round(this.canvas.width * recordScale));
+    const recH = Math.max(1, Math.round(this.canvas.height * recordScale));
+
+    const pushStageSnapshot = () => {
+      const fCanvas = document.createElement('canvas');
+      fCanvas.width = recW;
+      fCanvas.height = recH;
+      const fCtx = fCanvas.getContext('2d');
+      if (fCtx) {
+        fCtx.drawImage(this.canvas, 0, 0, recW, recH);
+        recordedFrames.push(fCanvas);
       }
-    }
+    };
 
-    this.emitStatus({
-      phase: 'PLAYING_TRANSITION',
-      currentSlideIndex: fromIndex,
-      targetSlideIndex: toIndex,
-      transitionProgress: 0,
-      activeTransitionHasVideo: true,
-      isFastForwarding: false,
-    });
+    // Capture Frame 0 from static fromSlide image
+    const fromImgEntry = this.imageCache.get(fromSlide.imageAsset.id);
+    if (fromImgEntry && fromImgEntry.img.complete && fromImgEntry.img.naturalWidth > 0) {
+      this.clearStage();
+      this.drawMediaElement(
+        fromImgEntry.img,
+        fromImgEntry.img.naturalWidth,
+        fromImgEntry.img.naturalHeight
+      );
+      pushStageSnapshot();
+    }
 
     let completed = false;
     const finish = async () => {
-      if (completed) return;
+      if (completed || this.destroyed || epoch !== this.playbackEpoch) return;
       completed = true;
 
-      // ZERO-FLICKER / CONTINUITY GUARD: Ensure destination slide image is fully ready
-      // before clearing stage, so the last decoded video frame stays stably displayed.
-      const toSlide = this.slides[toIndex];
+      if (this.activeVideo === video) {
+        video.onended = null;
+        video.onerror = null;
+        video.pause();
+        this.activeVideo = null;
+      }
+
       if (toSlide) {
-        const cachedImg = this.imageCache.get(toSlide.imageAsset.id);
-        if (!cachedImg || !cachedImg.complete) {
+        let readyImgEntry = this.imageCache.get(toSlide.imageAsset.id);
+        if (!readyImgEntry || !readyImgEntry.img.complete || readyImgEntry.img.naturalWidth === 0) {
           try {
             await this.ensureImageLoaded(toSlide.imageAsset.id, toSlide.imageAsset.objectUrl);
           } catch {
-            // Proceed to transition completion even if image load failed
+            // proceed
           }
+          readyImgEntry = this.imageCache.get(toSlide.imageAsset.id);
         }
-        // Capture landing frame (Slide 2) as final frame in recordedFrames
-        const readyImg = this.imageCache.get(toSlide.imageAsset.id);
-        if (readyImg && readyImg.complete && readyImg.naturalWidth > 0) {
-          const s2Canvas = document.createElement('canvas');
-          s2Canvas.width = this.canvas.width;
-          s2Canvas.height = this.canvas.height;
-          const s2Ctx = s2Canvas.getContext('2d');
-          if (s2Ctx) {
-            this.clearStage();
-            this.drawMediaElement(readyImg, readyImg.naturalWidth, readyImg.naturalHeight);
-            s2Ctx.drawImage(this.canvas, 0, 0);
-            recordedFrames.push(s2Canvas);
-          }
+
+        if (this.destroyed || epoch !== this.playbackEpoch) return;
+
+        if (readyImgEntry && readyImgEntry.img.complete && readyImgEntry.img.naturalWidth > 0) {
+          this.clearStage();
+          this.drawMediaElement(
+            readyImgEntry.img,
+            readyImgEntry.img.naturalWidth,
+            readyImgEntry.img.naturalHeight
+          );
+          pushStageSnapshot();
         }
       }
 
-      // Store recorded frames into reverse frame cache for true reverse playback.
-      // Segment transitions (cue-point) only cache under the transition spec id so
-      // multiple cues sharing one reel video asset don't overwrite each other's frames.
       if (recordedFrames.length > 0) {
         this.storeReverseFrames(spec.id, recordedFrames);
-        if (typeof spec.startTimeSec === 'undefined' && typeof spec.endTimeSec === 'undefined') {
+        if (!hasExplicitEnd && typeof spec.startTimeSec === 'undefined') {
           if (spec.videoAsset?.id) {
             this.storeReverseFrames(spec.videoAsset.id, recordedFrames);
           }
@@ -673,9 +1017,11 @@ export class StagePlaybackEngine {
       this.completeTransitionImmediately(toIndex);
     };
 
-    video.onended = finish;
+    video.onended = () => {
+      void finish();
+    };
     video.onerror = () => {
-      if (completed) return;
+      if (completed || this.destroyed || epoch !== this.playbackEpoch) return;
       completed = true;
       if (this.activeVideo === video) {
         video.onended = null;
@@ -686,77 +1032,108 @@ export class StagePlaybackEngine {
         fromIndex,
         toIndex,
         spec.fallbackStyle || 'crossfade',
-        spec.fallbackDurationMs || 650,
+        spec.fallbackDurationMs ?? 650,
         false
       );
     };
 
-    let lastVideoTime = -1;
+    let lastVideoTime = video.currentTime;
+    let lastAdvanceMs = performance.now();
     let stallCount = 0;
+    let hasAdvancedPastStart = false;
 
     const renderTick = () => {
-      if (completed || this.activeVideo !== video) return;
+      if (completed || this.destroyed || epoch !== this.playbackEpoch || this.activeVideo !== video) {
+        return;
+      }
 
-      const fullDuration =
-        Number.isFinite(video.duration) && video.duration > 0
-          ? video.duration
-          : spec.videoAsset?.durationSec && spec.videoAsset.durationSec > 0
-            ? spec.videoAsset.durationSec
-            : 1;
-      const endTime =
-        typeof spec.endTimeSec === 'number' && spec.endTimeSec > startTime
-          ? Math.min(fullDuration, spec.endTimeSec)
-          : fullDuration;
+      const nowTime = video.currentTime;
+      const finiteDuration = Number.isFinite(video.duration) && video.duration > 0;
+      const fullDuration = finiteDuration
+        ? video.duration
+        : spec.videoAsset?.durationSec && spec.videoAsset.durationSec > 0
+          ? spec.videoAsset.durationSec
+          : expectedEnd;
+
+      const endTime = hasExplicitEnd
+        ? Math.min(fullDuration, Math.max(startTime, spec.endTimeSec!))
+        : fullDuration;
       const segmentDuration = Math.max(0.05, endTime - startTime);
-      const progress = Math.min(1, Math.max(0, (video.currentTime - startTime) / segmentDuration));
+      const progress = Math.min(1, Math.max(0, (nowTime - startTime) / segmentDuration));
 
-      // ZERO-FLICKER / CONTINUITY GUARD: keep painting video only once decoded & past the start frame
-      if (video.readyState >= 2 && video.currentTime > startTime + 0.001) {
+      const effectiveRate = Math.max(0.25, video.playbackRate || 1);
+      // Pre-draw overshoot tolerance scales cleanly with playbackRate so fast-forward never paints next cue
+      const endTolerance = hasExplicitEnd
+        ? Math.min(0.03, Math.max(0.008, 0.01 * effectiveRate))
+        : (finiteDuration ? 0.015 : 0);
+
+      const reachedEnd =
+        video.ended ||
+        (hasExplicitEnd
+          ? nowTime >= endTime - endTolerance
+          : finiteDuration && nowTime >= endTime - 0.015);
+
+      // 1. CHECK COMPLETION BEFORE DRAWING VIDEO FRAME (prevents overshot frame flicker!)
+      if (reachedEnd) {
+        video.pause();
+        // Synchronously draw landing slide if already cached so stage never flashes past endTimeSec
+        const cachedTo = toSlide ? this.imageCache.get(toSlide.imageAsset.id) : undefined;
+        if (cachedTo && cachedTo.img.complete && cachedTo.img.naturalWidth > 0) {
+          this.clearStage();
+          this.drawMediaElement(
+            cachedTo.img,
+            cachedTo.img.naturalWidth,
+            cachedTo.img.naturalHeight
+          );
+        }
+        void finish();
+        return;
+      }
+
+      // 2. ZERO-FLICKER GUARD: never paint while seeking or before play moves onto segment
+      if (
+        !video.seeking &&
+        video.readyState >= 2 &&
+        (nowTime > startTime + 0.001 || (nowTime >= startTime - 0.003 && hasAdvancedPastStart))
+      ) {
         this.clearStage();
         this.drawMediaElement(video, video.videoWidth || 1920, video.videoHeight || 1080);
 
-        // Record decoded frame synchronously into cache for true reverse playback
-        if (Math.abs(video.currentTime - lastRecordedTime) >= 0.012) {
-          lastRecordedTime = video.currentTime;
-          const frameCanvas = document.createElement('canvas');
-          frameCanvas.width = this.canvas.width;
-          frameCanvas.height = this.canvas.height;
-          const fCtx = frameCanvas.getContext('2d');
-          if (fCtx) {
-            fCtx.drawImage(this.canvas, 0, 0);
-            recordedFrames.push(frameCanvas);
-          }
+        if (
+          recordedFrames.length < MAX_RECORDED_REVERSE_FRAMES + 1 &&
+          nowTime - lastRecordedTime >= captureIntervalSec
+        ) {
+          lastRecordedTime = nowTime;
+          pushStageSnapshot();
         }
       } else {
         this.drawSlideByIndex(fromIndex);
       }
 
-      this.emitStatus({ transitionProgress: progress });
+      this.emitStatus({
+        transitionProgress: progress,
+        currentVideoTimeSec: nowTime,
+        segmentRangeSec: { start: startTime, end: endTime },
+      });
 
-      // Segment completion detection handles normal end, trimmed end, and WebM Infinity durations
-      if (video.ended || (segmentDuration > 0.05 && video.currentTime >= endTime - 0.015)) {
-        video.pause();
-        finish();
-        return;
+      // 3. Relative stall detection (safe for any startTimeSec, any short segment, and any refresh rate)
+      if (nowTime > startTime + 0.015) {
+        hasAdvancedPastStart = true;
       }
 
-      // If the browser paused or stalled on decoded final frames without firing ended
-      if (video.currentTime > 0.2) {
-        if (video.paused && progress >= 0.98) {
-          finish();
+      if (Math.abs(nowTime - lastVideoTime) >= 0.001) {
+        stallCount = 0;
+        lastVideoTime = nowTime;
+        lastAdvanceMs = performance.now();
+      } else if (hasAdvancedPastStart || performance.now() - lastAdvanceMs > 300) {
+        stallCount++;
+        if (
+          (video.paused && progress >= 0.98) ||
+          (stallCount >= 6 && progress >= 0.98) ||
+          performance.now() - lastAdvanceMs >= 1800
+        ) {
+          void finish();
           return;
-        }
-        if (Math.abs(video.currentTime - lastVideoTime) < 0.0001) {
-          stallCount++;
-          // Never truncate at 0.82! Only finish if genuinely stalled at the very end (progress >= 0.98)
-          // or hung for a prolonged period (>= 90 frames / ~1.5s)
-          if ((stallCount >= 6 && progress >= 0.98) || stallCount >= 90) {
-            finish();
-            return;
-          }
-        } else {
-          stallCount = 0;
-          lastVideoTime = video.currentTime;
         }
       }
 
@@ -765,19 +1142,23 @@ export class StagePlaybackEngine {
 
     try {
       await video.play();
+      if (this.destroyed || epoch !== this.playbackEpoch || this.activeVideo !== video) {
+        video.pause();
+        return;
+      }
       this.rafId = requestAnimationFrame(renderTick);
     } catch {
+      if (this.destroyed || epoch !== this.playbackEpoch) return;
       if (this.activeVideo === video) {
         video.onended = null;
         video.onerror = null;
         this.activeVideo = null;
       }
-      // Fallback to procedural transition if video playback fails for any reason
       this.runProceduralTransition(
         fromIndex,
         toIndex,
         spec.fallbackStyle || 'crossfade',
-        spec.fallbackDurationMs || 650,
+        spec.fallbackDurationMs ?? 650,
         false
       );
     }
@@ -788,8 +1169,11 @@ export class StagePlaybackEngine {
     toIndex: number,
     style: FallbackTransitionStyle,
     durationMs: number,
-    isReverse = false
+    isReverse = false,
+    easing?: SegmentEasing
   ): void {
+    if (this.destroyed) return;
+    const epoch = this.playbackEpoch;
     this.isTransitionReverse = isReverse;
     if (style === 'cut' || durationMs <= 16) {
       this.enterHoldSlide(toIndex);
@@ -803,9 +1187,9 @@ export class StagePlaybackEngine {
       return;
     }
 
-    const fromImg = this.imageCache.get(fromSlide.imageAsset.id);
-    const toImg = this.imageCache.get(toSlide.imageAsset.id);
-    if (!fromImg || !toImg) {
+    const fromImg = this.imageCache.get(fromSlide.imageAsset.id)?.img;
+    const toImg = this.imageCache.get(toSlide.imageAsset.id)?.img;
+    if (!fromImg || !toImg || fromImg.naturalWidth === 0 || toImg.naturalWidth === 0) {
       this.enterHoldSlide(toIndex);
       return;
     }
@@ -820,6 +1204,7 @@ export class StagePlaybackEngine {
     let lastTime = performance.now();
     let elapsedProgress = 0;
     const baseDuration = Math.max(80, durationMs);
+    const activeEasing: SegmentEasing = easing ?? 'ease-in-out';
 
     this.emitStatus({
       phase: 'PLAYING_TRANSITION',
@@ -828,14 +1213,17 @@ export class StagePlaybackEngine {
       transitionProgress: 0,
       activeTransitionHasVideo: false,
       isFastForwarding: false,
+      currentVideoTimeSec: null,
+      segmentRangeSec: null,
     });
 
     const step = (now: number) => {
+      if (this.destroyed || epoch !== this.playbackEpoch) return;
       const dt = now - lastTime;
       lastTime = now;
       elapsedProgress += (dt * speedMultiplier) / baseDuration;
       const rawProgress = Math.min(1, elapsedProgress);
-      const t = this.easeInOutCubic(rawProgress);
+      const t = this.evaluateEasing(rawProgress, activeEasing);
 
       this.clearStage();
       const w = this.canvas.width;
@@ -849,9 +1237,6 @@ export class StagePlaybackEngine {
         this.drawMediaElement(toImg, toImg.naturalWidth, toImg.naturalHeight);
         this.ctx.restore();
       } else if (style === 'zoom-morph') {
-        // True reverse cleanly mirrors the forward zoom-morph:
-        // Forward: outgoing zooms 1.0 -> 1.14 (fades out), incoming zooms 0.88 -> 1.0 (fades in)
-        // Reverse: outgoing zooms 1.0 -> 0.88 (fades out), incoming zooms 1.14 -> 1.0 (fades in)
         const outScale = isReverse ? 1 - t * 0.12 : 1 + t * 0.14;
         const inScale = isReverse ? 1.14 - t * 0.14 : 0.88 + t * 0.12;
 
@@ -881,6 +1266,46 @@ export class StagePlaybackEngine {
         this.ctx.translate(-dir * (1 - t) * w, 0);
         this.drawMediaElement(toImg, toImg.naturalWidth, toImg.naturalHeight);
         this.ctx.restore();
+      } else if (style === 'wipe-reveal') {
+        this.ctx.save();
+        this.ctx.globalAlpha = 1;
+        this.drawMediaElement(fromImg, fromImg.naturalWidth, fromImg.naturalHeight);
+        this.ctx.restore();
+
+        const clipW = Math.max(0, w * t);
+        const clipX = isReverse ? w - clipW : 0;
+
+        this.ctx.save();
+        this.ctx.beginPath();
+        this.ctx.rect(clipX, 0, clipW, h);
+        this.ctx.clip();
+        this.ctx.globalAlpha = 1;
+        this.drawMediaElement(toImg, toImg.naturalWidth, toImg.naturalHeight);
+        this.ctx.restore();
+
+        if (t > 0.02 && t < 0.98) {
+          const edgeX = isReverse ? clipX : clipW;
+          this.ctx.save();
+          this.ctx.fillStyle = 'rgba(79, 140, 255, 0.65)';
+          this.ctx.fillRect(Math.max(0, edgeX - 2), 0, 4, h);
+          this.ctx.restore();
+        }
+      } else if (style === 'iris-spotlight') {
+        this.ctx.save();
+        this.ctx.globalAlpha = Math.max(0, 1 - t * 0.25);
+        this.drawMediaElement(fromImg, fromImg.naturalWidth, fromImg.naturalHeight);
+        this.ctx.restore();
+
+        const maxRadius = Math.hypot(w, h) * 0.55;
+        const radius = Math.max(1, maxRadius * t);
+
+        this.ctx.save();
+        this.ctx.beginPath();
+        this.ctx.arc(w / 2, h / 2, radius, 0, Math.PI * 2);
+        this.ctx.clip();
+        this.ctx.globalAlpha = 1;
+        this.drawMediaElement(toImg, toImg.naturalWidth, toImg.naturalHeight);
+        this.ctx.restore();
       }
 
       this.emitStatus({ transitionProgress: rawProgress });
@@ -902,6 +1327,7 @@ export class StagePlaybackEngine {
   }
 
   private stopCurrentAnimation(): void {
+    this.playbackEpoch++;
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
@@ -923,17 +1349,18 @@ export class StagePlaybackEngine {
     this.clearStage();
     const slide = this.slides[index];
     if (!slide) return;
-    const img = this.imageCache.get(slide.imageAsset.id);
-    if (img && img.complete && img.naturalWidth > 0) {
+    const entry = this.imageCache.get(slide.imageAsset.id);
+    if (entry && entry.url === slide.imageAsset.objectUrl && entry.img.complete && entry.img.naturalWidth > 0) {
       this.drawMediaElement(
-        img,
-        img.naturalWidth || slide.imageAsset.width,
-        img.naturalHeight || slide.imageAsset.height
+        entry.img,
+        entry.img.naturalWidth || slide.imageAsset.width,
+        entry.img.naturalHeight || slide.imageAsset.height
       );
     } else {
-      // If image is not yet loaded into cache, asynchronously load and paint upon arrival
       this.ensureImageLoaded(slide.imageAsset.id, slide.imageAsset.objectUrl).then((loaded) => {
         if (
+          !this.destroyed &&
+          loaded.naturalWidth > 0 &&
           this.status.currentSlideIndex === index &&
           this.status.phase === 'HOLDING_SLIDE'
         ) {
@@ -944,7 +1371,7 @@ export class StagePlaybackEngine {
             loaded.naturalHeight || slide.imageAsset.height
           );
         }
-      });
+      }).catch(() => {});
     }
   }
 
@@ -979,7 +1406,7 @@ export class StagePlaybackEngine {
   /**
    * TRUE REVERSE VIDEO TRANSITION:
    * Plays buffered canvas/video frames in true reverse from last frame down to frame 0
-   * at 60fps matching the original transition duration.
+   * matching the original transition/segment duration.
    */
   private runReverseVideoTransition(
     fromIndex: number,
@@ -988,6 +1415,7 @@ export class StagePlaybackEngine {
     frames: (ImageBitmap | HTMLCanvasElement)[]
   ): void {
     this.stopCurrentAnimation();
+    const epoch = this.playbackEpoch;
     this.isTransitionReverse = true;
 
     const fromSlide = this.slides[fromIndex];
@@ -997,11 +1425,20 @@ export class StagePlaybackEngine {
       return;
     }
 
-    const durationSec = typeof spec.startTimeSec === 'number' || typeof spec.endTimeSec === 'number'
-      ? Math.max(0.1, (spec.endTimeSec ?? (spec.videoAsset?.durationSec || 1)) - (spec.startTimeSec ?? 0))
-      : (spec.videoAsset?.durationSec && spec.videoAsset.durationSec > 0
-        ? spec.videoAsset.durationSec
-        : frames.length / 60);
+    const startSec = typeof spec.startTimeSec === 'number' ? spec.startTimeSec : 0;
+    const endSec =
+      typeof spec.endTimeSec === 'number'
+        ? spec.endTimeSec
+        : (spec.videoAsset?.durationSec && spec.videoAsset.durationSec > 0
+            ? spec.videoAsset.durationSec
+            : frames.length / 30);
+
+    const durationSec =
+      typeof spec.startTimeSec === 'number' || typeof spec.endTimeSec === 'number'
+        ? Math.max(0.1, endSec - startSec)
+        : (spec.videoAsset?.durationSec && spec.videoAsset.durationSec > 0
+            ? spec.videoAsset.durationSec
+            : frames.length / 30);
     const baseDurationMs = Math.max(80, durationSec * 1000);
 
     let speedMultiplier = Math.max(
@@ -1015,6 +1452,9 @@ export class StagePlaybackEngine {
       },
     };
 
+    // Preload destination image concurrently while reversing
+    void this.ensureImageLoaded(toSlide.imageAsset.id, toSlide.imageAsset.objectUrl).catch(() => {});
+
     let lastTime = performance.now();
     let elapsedProgress = 0;
 
@@ -1025,17 +1465,18 @@ export class StagePlaybackEngine {
       transitionProgress: 0,
       activeTransitionHasVideo: true,
       isFastForwarding: false,
+      currentVideoTimeSec: endSec,
+      segmentRangeSec: { start: startSec, end: endSec },
     });
 
     let completed = false;
     const finish = async () => {
-      if (completed) return;
+      if (completed || this.destroyed || epoch !== this.playbackEpoch) return;
       completed = true;
       this.activeProceduralTransition = null;
 
-      // ZERO-FLICKER / CONTINUITY GUARD: Ensure destination slide image is fully ready
-      const cachedImg = this.imageCache.get(toSlide.imageAsset.id);
-      if (!cachedImg || !cachedImg.complete) {
+      const cachedImg = this.imageCache.get(toSlide.imageAsset.id)?.img;
+      if (!cachedImg || !cachedImg.complete || cachedImg.naturalWidth === 0) {
         try {
           await this.ensureImageLoaded(toSlide.imageAsset.id, toSlide.imageAsset.objectUrl);
         } catch {
@@ -1043,18 +1484,17 @@ export class StagePlaybackEngine {
         }
       }
 
+      if (this.destroyed || epoch !== this.playbackEpoch) return;
       this.completeTransitionImmediately(toIndex);
     };
 
     const step = (now: number) => {
-      if (completed) return;
+      if (completed || this.destroyed || epoch !== this.playbackEpoch) return;
       const dt = now - lastTime;
       lastTime = now;
       elapsedProgress += (dt * speedMultiplier) / baseDurationMs;
       const progress = Math.min(1, Math.max(0, elapsedProgress));
 
-      // Reverse mapping: progress = 0 -> last frame (frames.length - 1)
-      // progress = 1 -> first frame (0)
       const frameIdx = Math.max(
         0,
         Math.min(
@@ -1065,44 +1505,28 @@ export class StagePlaybackEngine {
 
       const frame = frames[frameIdx];
       if (frame) {
-        this.clearStage();
-        const frameW = frame instanceof HTMLCanvasElement ? frame.width : frame.width;
-        const frameH = frame instanceof HTMLCanvasElement ? frame.height : frame.height;
-        this.drawMediaElement(frame, frameW, frameH);
+        const frameW = frame.width;
+        const frameH = frame.height;
+        if (frameW > 0 && frameH > 0) {
+          this.clearStage();
+          this.drawMediaElement(frame, frameW, frameH);
+        }
       }
 
-      this.emitStatus({ transitionProgress: progress });
+      const revTime = endSec - progress * (endSec - startSec);
+      this.emitStatus({
+        transitionProgress: progress,
+        currentVideoTimeSec: revTime,
+      });
 
       if (progress < 1) {
         this.rafId = requestAnimationFrame(step);
       } else {
-        finish();
+        void finish();
       }
     };
 
     this.rafId = requestAnimationFrame(step);
-  }
-
-  private async captureFrame(
-    source: HTMLVideoElement | HTMLCanvasElement
-  ): Promise<ImageBitmap | HTMLCanvasElement> {
-    if (typeof createImageBitmap === 'function') {
-      try {
-        return await createImageBitmap(source);
-      } catch {
-        // Fallback to canvas
-      }
-    }
-    const offscreen = document.createElement('canvas');
-    const w = source instanceof HTMLVideoElement ? (source.videoWidth || 1920) : source.width;
-    const h = source instanceof HTMLVideoElement ? (source.videoHeight || 1080) : source.height;
-    offscreen.width = w;
-    offscreen.height = h;
-    const offCtx = offscreen.getContext('2d');
-    if (offCtx) {
-      offCtx.drawImage(source, 0, 0, w, h);
-    }
-    return offscreen;
   }
 
   getReverseFrames(key: string): (ImageBitmap | HTMLCanvasElement)[] | undefined {
@@ -1118,181 +1542,298 @@ export class StagePlaybackEngine {
     cacheKey: string,
     frames: (ImageBitmap | HTMLCanvasElement)[]
   ): void {
-    const existing = this.reverseFrameCache.get(cacheKey);
-    if (existing && existing !== frames) {
-      for (const f of existing) {
-        if ('close' in f && typeof f.close === 'function') {
-          f.close();
-        } else if (f instanceof HTMLCanvasElement) {
-          f.width = 0;
-          f.height = 0;
+    this.reverseFrameCache.set(cacheKey, frames);
+    StagePlaybackEngine.cacheReverseFrames(cacheKey, frames);
+
+    // Bounded LRU eviction on globalReverseFrameCache if grown past MAX_REVERSE_CACHE_ENTRIES
+    if (StagePlaybackEngine.globalReverseFrameCache.size > MAX_REVERSE_CACHE_ENTRIES) {
+      const validKeys = this.collectValidReverseKeys();
+      for (const [key, val] of StagePlaybackEngine.globalReverseFrameCache.entries()) {
+        if (StagePlaybackEngine.globalReverseFrameCache.size <= MAX_REVERSE_CACHE_ENTRIES) break;
+        if (key !== cacheKey && !validKeys.has(key)) {
+          StagePlaybackEngine.disposeFrameArray(val);
+          StagePlaybackEngine.globalReverseFrameCache.delete(key);
+          this.reverseFrameCache.delete(key);
         }
       }
     }
-    this.reverseFrameCache.set(cacheKey, frames);
-    StagePlaybackEngine.globalReverseFrameCache.set(cacheKey, frames);
+  }
+
+  private collectValidReverseKeys(): Set<string> {
+    const validKeys = new Set<string>();
+    for (const s of this.slides) {
+      validKeys.add(s.transitionToNext.id);
+      if (
+        s.transitionToNext.videoAsset &&
+        typeof s.transitionToNext.startTimeSec === 'undefined' &&
+        typeof s.transitionToNext.endTimeSec === 'undefined'
+      ) {
+        validKeys.add(s.transitionToNext.videoAsset.id);
+      }
+    }
+    return validKeys;
   }
 
   private cleanUnusedReverseFrameCache(): void {
     if (this.slides.length === 0) {
-      this.clearReverseFrameCache();
+      this.reverseFrameCache.clear();
       return;
     }
-    const validKeys = new Set<string>();
-    for (const s of this.slides) {
-      validKeys.add(s.transitionToNext.id);
-      if (s.transitionToNext.videoAsset) {
-        validKeys.add(s.transitionToNext.videoAsset.id);
-      }
-    }
+    const validKeys = this.collectValidReverseKeys();
 
-    for (const [key, frames] of this.reverseFrameCache.entries()) {
+    for (const key of Array.from(this.reverseFrameCache.keys())) {
       if (!validKeys.has(key)) {
-        for (const f of frames) {
-          if ('close' in f && typeof f.close === 'function') {
-            f.close();
-          } else if (f instanceof HTMLCanvasElement) {
-            f.width = 0;
-            f.height = 0;
-          }
-        }
         this.reverseFrameCache.delete(key);
       }
     }
 
-    for (const [key, frames] of StagePlaybackEngine.globalReverseFrameCache.entries()) {
+    for (const [key, frames] of Array.from(StagePlaybackEngine.globalReverseFrameCache.entries())) {
       if (!validKeys.has(key)) {
-        for (const f of frames) {
-          if ('close' in f && typeof f.close === 'function') {
-            f.close();
-          } else if (f instanceof HTMLCanvasElement) {
-            f.width = 0;
-            f.height = 0;
-          }
-        }
+        StagePlaybackEngine.disposeFrameArray(frames);
         StagePlaybackEngine.globalReverseFrameCache.delete(key);
       }
     }
   }
 
   clearReverseFrameCache(): void {
-    for (const [, frames] of this.reverseFrameCache.entries()) {
-      for (const f of frames) {
-        if ('close' in f && typeof f.close === 'function') {
-          f.close();
-        } else if (f instanceof HTMLCanvasElement) {
-          f.width = 0;
-          f.height = 0;
-        }
-      }
-    }
     this.reverseFrameCache.clear();
   }
 
-  private async prewarmReverseFrames(
+  private prewarmReverseFrames(
     specId: string,
     videoAsset: { id: string; objectUrl: string; durationSec?: number },
     startTimeSec?: number,
-    endTimeSec?: number
+    endTimeSec?: number,
+    fromIdx?: number,
+    toIdx?: number
   ): Promise<void> {
-    if (this.hasReverseFrames(specId) || this.hasReverseFrames(videoAsset.id)) return;
-    if (typeof document === 'undefined') return;
+    const isSegment =
+      typeof startTimeSec === 'number' || typeof endTimeSec === 'number';
+    if (this.hasReverseFrames(specId) || (!isSegment && this.hasReverseFrames(videoAsset.id))) {
+      return Promise.resolve();
+    }
+    if (typeof document === 'undefined' || !videoAsset.objectUrl) {
+      return Promise.resolve();
+    }
 
-    try {
-      const start = startTimeSec ?? 0;
-      const end = endTimeSec ?? (videoAsset.durationSec || 1);
-      const dur = Math.max(0.05, end - start);
+    const existingPromise = this.prewarmInFlight.get(specId);
+    if (existingPromise) return existingPromise;
 
-      if (this.hasReverseFrames(specId) || this.hasReverseFrames(videoAsset.id)) return;
-
-      const sampleCount = Math.min(30, Math.max(10, Math.round(dur * 25)));
-      const frames: HTMLCanvasElement[] = [];
-
+    const task = (async () => {
       const video = document.createElement('video');
       video.preload = 'auto';
       video.muted = true;
       video.playsInline = true;
-      video.src = videoAsset.objectUrl;
 
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => resolve(), 2000);
-        video.onloadeddata = () => {
-          clearTimeout(timer);
-          resolve();
-        };
-        video.onerror = () => {
-          clearTimeout(timer);
-          reject();
-        };
-      });
+      try {
+        video.src = videoAsset.objectUrl;
 
-      const w = video.videoWidth || 1280;
-      const h = video.videoHeight || 720;
+        await new Promise<void>((resolve, reject) => {
+          if (video.readyState >= 2) {
+            resolve();
+            return;
+          }
+          const timer = window.setTimeout(() => resolve(), 2500);
+          video.onloadeddata = () => {
+            window.clearTimeout(timer);
+            resolve();
+          };
+          video.onerror = () => {
+            window.clearTimeout(timer);
+            reject(new Error('Prewarm load error'));
+          };
+        });
 
-      for (let i = 0; i < sampleCount; i++) {
-        const targetTime = start + ((i / (sampleCount - 1)) * (dur - start));
-        if (Math.abs(video.currentTime - targetTime) > 0.02) {
-          video.currentTime = targetTime;
-          await new Promise<void>((resolve) => {
-            const seekTimer = setTimeout(resolve, 60);
-            video.onseeked = () => {
-              clearTimeout(seekTimer);
+        if (this.destroyed || !this.collectValidReverseKeys().has(specId)) return;
+
+        const actualDuration =
+          Number.isFinite(video.duration) && video.duration > 0
+            ? video.duration
+            : (videoAsset.durationSec && videoAsset.durationSec > 0 ? videoAsset.durationSec : 1);
+
+        const start =
+          typeof startTimeSec === 'number' && Number.isFinite(startTimeSec) && startTimeSec >= 0
+            ? Math.min(startTimeSec, actualDuration)
+            : 0;
+        const end =
+          typeof endTimeSec === 'number' && Number.isFinite(endTimeSec) && endTimeSec > start
+            ? Math.min(endTimeSec, actualDuration)
+            : actualDuration;
+        const dur = Math.max(0.05, end - start);
+
+        if (this.hasReverseFrames(specId)) return;
+
+        const sampleCount = Math.min(36, Math.max(10, Math.round(dur * 24)));
+        const frames: HTMLCanvasElement[] = [];
+
+        const rawW = video.videoWidth || 1280;
+        const rawH = video.videoHeight || 720;
+        const scale = Math.min(1, MAX_PREWARM_FRAME_DIM / Math.max(rawW, rawH));
+        const w = Math.max(1, Math.round(rawW * scale));
+        const h = Math.max(1, Math.round(rawH * scale));
+
+        const seekSample = (timeSec: number) =>
+          new Promise<void>((resolve) => {
+            const clamped = Math.max(0, Math.min(timeSec, Math.max(0, actualDuration - 0.002)));
+            if (!video.seeking && video.readyState >= 2 && Math.abs(video.currentTime - clamped) <= 0.01) {
+              resolve();
+              return;
+            }
+            let finished = false;
+            const done = () => {
+              if (finished) return;
+              finished = true;
+              window.clearTimeout(seekTimer);
+              video.removeEventListener('seeked', done);
               resolve();
             };
+            const seekTimer = window.setTimeout(done, 450);
+            video.addEventListener('seeked', done, { once: true });
+            try {
+              video.currentTime = clamped;
+            } catch {
+              done();
+            }
           });
-        }
-        const offscreen = document.createElement('canvas');
-        offscreen.width = w;
-        offscreen.height = h;
-        const offCtx = offscreen.getContext('2d');
-        if (offCtx) {
-          offCtx.drawImage(video, 0, 0, w, h);
-          frames.push(offscreen);
-        }
-      }
 
-      video.pause();
-      video.removeAttribute('src');
-      video.load();
+        for (let i = 0; i < sampleCount; i++) {
+          if (this.destroyed || !this.collectValidReverseKeys().has(specId)) {
+            StagePlaybackEngine.disposeFrameArray(frames);
+            return;
+          }
+          // Fixed segment interpolation math: start + ratio * dur (was dur - start!)
+          const targetTime = start + (i / (sampleCount - 1)) * dur;
+          await seekSample(targetTime);
 
-      if (frames.length > 0 && !this.hasReverseFrames(specId)) {
-        this.storeReverseFrames(specId, frames);
-        if (typeof startTimeSec === 'undefined' && typeof endTimeSec === 'undefined') {
-          this.storeReverseFrames(videoAsset.id, frames);
+          if (video.readyState >= 2) {
+            const offscreen = document.createElement('canvas');
+            offscreen.width = w;
+            offscreen.height = h;
+            const offCtx = offscreen.getContext('2d');
+            if (offCtx) {
+              offCtx.drawImage(video, 0, 0, w, h);
+              frames.push(offscreen);
+            }
+          }
         }
+
+        // Snap endpoints to cached slide images if available for seamless reverse landing
+        if (frames.length > 0 && typeof fromIdx === 'number' && this.slides[fromIdx]) {
+          const fromImg = this.imageCache.get(this.slides[fromIdx].imageAsset.id)?.img;
+          if (fromImg && fromImg.complete && fromImg.naturalWidth > 0) {
+            const f0Ctx = frames[0].getContext('2d');
+            if (f0Ctx) {
+              f0Ctx.drawImage(fromImg, 0, 0, w, h);
+            }
+          }
+        }
+        if (frames.length > 1 && typeof toIdx === 'number' && toIdx !== -1 && this.slides[toIdx]) {
+          const toImg = this.imageCache.get(this.slides[toIdx].imageAsset.id)?.img;
+          if (toImg && toImg.complete && toImg.naturalWidth > 0) {
+            const fLastCtx = frames[frames.length - 1].getContext('2d');
+            if (fLastCtx) {
+              fLastCtx.drawImage(toImg, 0, 0, w, h);
+            }
+          }
+        }
+
+        if (
+          frames.length > 0 &&
+          !this.destroyed &&
+          this.collectValidReverseKeys().has(specId) &&
+          !this.hasReverseFrames(specId)
+        ) {
+          this.storeReverseFrames(specId, frames);
+          if (!isSegment) {
+            this.storeReverseFrames(videoAsset.id, frames);
+          }
+        } else {
+          StagePlaybackEngine.disposeFrameArray(frames);
+        }
+      } catch {
+        // Ignored: runtime capture will populate cache on first forward play
+      } finally {
+        video.onloadeddata = null;
+        video.onerror = null;
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+        this.prewarmInFlight.delete(specId);
       }
-    } catch {
-      // Ignored: runtime capture will handle it
-    }
+    })();
+
+    this.prewarmInFlight.set(specId, task);
+    return task;
   }
 
   private ensureImageLoaded(assetId: string, objectUrl: string): Promise<HTMLImageElement> {
     const existing = this.imageCache.get(assetId);
-    if (existing && existing.complete) {
-      return Promise.resolve(existing);
+    if (existing && existing.url === objectUrl && existing.img.complete && existing.img.naturalWidth > 0) {
+      return Promise.resolve(existing.img);
     }
 
-    return new Promise((resolve) => {
+    const inflightKey = `${assetId}::${objectUrl}`;
+    const inflight = this.inflightImages.get(inflightKey);
+    if (inflight) return inflight;
+
+    const promise = new Promise<HTMLImageElement>((resolve) => {
+      if (!objectUrl) {
+        this.inflightImages.delete(inflightKey);
+        resolve(new Image());
+        return;
+      }
+
       const img = new Image();
-      img.onload = () => {
-        this.imageCache.set(assetId, img);
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        this.inflightImages.delete(inflightKey);
+        if (img.complete && img.naturalWidth > 0) {
+          this.imageCache.set(assetId, { url: objectUrl, img });
+        }
         resolve(img);
       };
-      img.onerror = () => {
-        resolve(img);
-      };
+
+      const timer = window.setTimeout(done, 4000);
+      img.onload = done;
+      img.onerror = done;
       img.src = objectUrl;
     });
+
+    this.inflightImages.set(inflightKey, promise);
+    return promise;
   }
 
   private ensureVideoWarmed(assetId: string, objectUrl: string): Promise<HTMLVideoElement> {
     const existing = this.videoCache.get(assetId);
-    if (existing && existing.readyState >= 2) {
-      return Promise.resolve(existing);
+    if (
+      existing &&
+      existing.url === objectUrl &&
+      existing.video.readyState >= 2 &&
+      !existing.video.error
+    ) {
+      return Promise.resolve(existing.video);
     }
 
-    return new Promise((resolve) => {
-      const video = existing || document.createElement('video');
+    const inflightKey = `${assetId}::${objectUrl}`;
+    const inflight = this.inflightVideos.get(inflightKey);
+    if (inflight) return inflight;
+
+    const promise = new Promise<HTMLVideoElement>((resolve) => {
+      if (existing && existing.url !== objectUrl) {
+        existing.video.pause();
+        existing.video.removeAttribute('src');
+        existing.video.load();
+        this.videoCache.delete(assetId);
+      }
+
+      const video =
+        existing && existing.url === objectUrl && !existing.video.error
+          ? existing.video
+          : document.createElement('video');
+
       video.preload = 'auto';
       video.playsInline = true;
       video.muted = true;
@@ -1301,31 +1842,62 @@ export class StagePlaybackEngine {
       const finish = () => {
         if (done) return;
         done = true;
-        this.videoCache.set(assetId, video);
+        window.clearTimeout(timer);
+        video.removeEventListener('loadeddata', finish);
+        video.removeEventListener('canplay', finish);
+        video.removeEventListener('error', finish);
+        this.inflightVideos.delete(inflightKey);
+        if (video.readyState >= 2 && !video.error) {
+          this.videoCache.set(assetId, { url: objectUrl, video });
+        }
         resolve(video);
       };
 
       const timer = window.setTimeout(finish, 3000);
-      video.onloadeddata = () => {
-        window.clearTimeout(timer);
+      video.addEventListener('loadeddata', finish, { once: true });
+      video.addEventListener('canplay', finish, { once: true });
+      video.addEventListener('error', finish, { once: true });
+
+      if (!objectUrl) {
         finish();
-      };
-      video.onerror = () => {
-        window.clearTimeout(timer);
-        finish();
-      };
+        return;
+      }
 
       if (video.src !== objectUrl) {
         video.src = objectUrl;
         video.load();
       } else if (video.readyState >= 2) {
-        window.clearTimeout(timer);
         finish();
+      } else {
+        // Retry cleanly if previous attempt timed out at readyState < 2
+        video.load();
       }
     });
+
+    this.inflightVideos.set(inflightKey, promise);
+    return promise;
   }
 
   private easeInOutCubic(x: number): number {
     return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+  }
+
+  private evaluateEasing(x: number, easing: SegmentEasing): number {
+    const t = Math.max(0, Math.min(1, x));
+    switch (easing) {
+      case 'linear':
+        return t;
+      case 'ease-in':
+        return t * t * t;
+      case 'ease-out':
+        return 1 - Math.pow(1 - t, 3);
+      case 'hold':
+        return t >= 1 ? 1 : 0;
+      case 'step':
+        return t >= 0.5 ? 1 : 0;
+      case 'ease-in-out':
+      default:
+        return this.easeInOutCubic(t);
+    }
   }
 }

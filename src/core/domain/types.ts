@@ -1,6 +1,12 @@
 export type MediaKind = 'image' | 'video';
 
-export type FallbackTransitionStyle = 'crossfade' | 'zoom-morph' | 'slide-push' | 'cut';
+export type FallbackTransitionStyle =
+  | 'crossfade'
+  | 'zoom-morph'
+  | 'slide-push'
+  | 'wipe-reveal'
+  | 'iris-spotlight'
+  | 'cut';
 
 export type InterruptBehavior = 'lock' | 'skip' | 'fast-forward';
 
@@ -13,6 +19,14 @@ export type InterruptBehavior = 'lock' | 'skip' | 'fast-forward';
 export type BackwardBehavior = 'reverse-step' | 'crossfade' | 'instant';
 
 export type AspectRatioOption = '16:9' | '16:10' | '4:3' | '9:16';
+
+export type SegmentEasing =
+  | 'linear'
+  | 'ease-in'
+  | 'ease-out'
+  | 'ease-in-out'
+  | 'hold'
+  | 'step';
 
 export type FitMode = 'contain' | 'cover';
 
@@ -32,6 +46,10 @@ export interface MediaAsset {
   thumbnailUrl: string;
   lastFrameUrl?: string;
   rawFile?: File | Blob;
+  hasAudio?: boolean;
+  suggestedAspectRatio?: AspectRatioOption;
+  sourceVideoId?: string;
+  sourceTimeSec?: number;
 }
 
 export interface TransitionSpec {
@@ -43,6 +61,9 @@ export interface TransitionSpec {
   muted: boolean;
   startTimeSec?: number;
   endTimeSec?: number;
+  expectedVideoFileName?: string;
+  expectedVideoDurationSec?: number;
+  easing?: SegmentEasing;
 }
 
 export interface SlideNode {
@@ -53,6 +74,16 @@ export interface SlideNode {
   holdDurationSec: number | null; // null = manual advance (click/space/arrow)
   transitionToNext: TransitionSpec;
 }
+
+export interface ReelMetadata {
+  sourceVideoId: string;
+  sourceVideoName: string;
+  durationSec: number;
+  cueTimesSec: number[];
+  segmentEasings?: SegmentEasing[];
+}
+
+export type AppLanguage = 'ar' | 'en';
 
 export interface PresentationSettings {
   aspectRatio: AspectRatioOption;
@@ -69,6 +100,9 @@ export interface PresentationSettings {
   showPresenterHud: HudVisibility;
   autoHideCursor: boolean;
   preloadStrategy: 'all' | 'adjacent';
+  language?: AppLanguage;
+  navigatorWidth?: number;
+  inspectorWidth?: number;
 }
 
 export interface PresentationProject {
@@ -78,6 +112,7 @@ export interface PresentationProject {
   updatedAt: string;
   slides: SlideNode[];
   settings: PresentationSettings;
+  reelMetadata?: ReelMetadata;
 }
 
 export type PlaybackPhase =
@@ -85,7 +120,8 @@ export type PlaybackPhase =
   | 'PRELOADING'
   | 'HOLDING_SLIDE'
   | 'PLAYING_TRANSITION'
-  | 'BLACKOUT';
+  | 'BLACKOUT'
+  | 'WHITEOUT';
 
 export interface EngineStatus {
   phase: PlaybackPhase;
@@ -96,6 +132,8 @@ export interface EngineStatus {
   activeTransitionHasVideo: boolean;
   isFastForwarding: boolean;
   errorMessage: string | null;
+  currentVideoTimeSec?: number | null;
+  segmentRangeSec?: { start: number; end: number } | null;
 }
 
 export interface ValidationResult {

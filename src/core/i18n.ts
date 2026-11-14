@@ -1,0 +1,1377 @@
+export type AppLanguage = 'ar' | 'en';
+
+export const LANGUAGE_STORAGE_KEY = 'motion_presentation_language_v1';
+export const PANEL_WIDTHS_STORAGE_KEY = 'motion_presentation_panel_widths_v1';
+
+const AR_STRINGS = {
+  // App & Default Titles
+  'app.name': 'Motion Presentation Studio',
+  'app.titleDefault': 'عرض تفاعلي جديد',
+  'app.titleUntitled': 'عرض بدون عنوان',
+  'app.titleImported': 'عرض مستورد',
+  'app.titleDemo': 'عرض تجريبي — Motion Presentation Studio',
+  'slide.defaultTitle': 'شريحة {index}',
+  'slide.duplicateSuffix': '(نسخة)',
+  'slide.introExtracted': 'شريحة المقدمة (المستخرجة)',
+  'slide.startOf': 'شريحة {index} (بداية {name})',
+  'slide.endOf': 'شريحة {index} (نهاية {name})',
+  'slide.cueTitle': 'مرحلة توقف {index} ({time}s)',
+  'slide.holdTitle': 'مرحلة توقف ({time}s)',
+  'slide.extractedAt': 'شريحة {index} ({time}s)',
+  'slide.extractedEnd': 'شريحة {index} (من نهاية الفيديو)',
+  'slide.mockCanvasLabel': 'شريحة {index} — {name}',
+  'slide.filePrefixIntro': 'مقدمة',
+  'slide.filePrefixSlide': 'شريحة',
+  'slide.filePrefixStart': 'بداية',
+  'slide.filePrefixEnd': 'نهاية',
+  'slide.filePrefixHold': 'توقف',
+  'slide.filePrefixExtracted': 'شريحة_مستخرجة',
+
+  // Landmarks & Shell
+  'shell.toolbarAria': 'شريط الأدوات الرئيسي',
+  'shell.navigatorAria': 'متصفح الشرائح',
+  'shell.stageAria': 'منصة المعاينة',
+  'shell.hudAria': 'أدوات العرض',
+  'shell.inspectorAria': 'لوحة الخصائص',
+  'shell.navResizerAria': 'تغيير عرض متصفح الشرائح',
+  'shell.inspectorResizerAria': 'تغيير عرض لوحة الخصائص',
+  'shell.resizerTitle': 'اسحب لتغيير العرض · انقر مرتين لإعادة الضبط',
+  'shell.dropOverlayText': 'أفلت الصور أو الفيديوهات لإضافتها إلى العرض',
+
+  // Toolbar
+  'toolbar.toggleNavTitle': 'إظهار أو إخفاء متصفح الشرائح',
+  'toolbar.toggleInspectorTitle': 'إظهار أو إخفاء لوحة الخصائص',
+  'toolbar.projectTitleAria': 'عنوان العرض',
+  'toolbar.projectTitlePlaceholder': 'عنوان العرض...',
+  'toolbar.openProject': 'فتح مشروع',
+  'toolbar.openProjectTitle': 'فتح مشروع محفوظ (Ctrl+O)',
+  'toolbar.importMedia': 'استيراد وسائط',
+  'toolbar.importMediaTitle': 'استيراد صور الشرائح وفيديوهات الانتقال دفعة واحدة',
+  'toolbar.reelWorkflow': 'فيديو {arrow} شرائح',
+  'toolbar.reelWorkflowTitle': 'تحويل فيديو موشن كامل إلى شرائح ومراحل توقف تلقائياً',
+  'toolbar.addSlide': 'شريحة جديدة',
+  'toolbar.addSlideTitle': 'إضافة شريحة صورة ثابتة',
+  'toolbar.loadDemo': 'عرض تجريبي',
+  'toolbar.loadDemoBusy': 'جاري التحضير...',
+  'toolbar.loadDemoTitle': 'توليد عرض تجريبي مع فيديوهات انتقال حركية حقيقية',
+  'toolbar.saveProject': 'حفظ المشروع',
+  'toolbar.saveProjectTitle': 'حفظ ملف العرض التقديمي بالكامل (Ctrl+S)',
+  'toolbar.undoTitle': 'تراجع (Ctrl+Z)',
+  'toolbar.redoTitle': 'إعادة (Ctrl+Y)',
+  'toolbar.shortcutsTitle': 'اختصارات لوحة المفاتيح (?)',
+  'toolbar.playPresentation': 'تشغيل العرض',
+  'toolbar.playPresentationTitle': 'تشغيل العرض التفاعلي بملء الشاشة (F5)',
+  'toolbar.langToggleTitle': 'تبديل لغة الواجهة إلى الإنجليزية',
+  'toolbar.langShort': 'EN',
+  'toolbar.langCurrent': 'AR',
+  'toolbar.themeToggleTitle': 'تبديل المظهر (داكن / فاتح / تلقائي)',
+  'toolbar.commandPaletteTitle': 'لوحة الأوامر السريعة (Ctrl+K)',
+  'theme.system': 'تلقائي',
+  'theme.dark': 'داكن',
+  'theme.light': 'فاتح',
+
+  // Navigator & Multi-select & Filter
+  'nav.multiSelectAria': 'التحديد المتعدد',
+  'nav.multiSelectSlides': '{count} شرائح',
+  'nav.multiSelectTransitions': '{count} انتقالات',
+  'nav.multiSelectPrefix': 'تم تحديد',
+  'nav.deleteSelected': 'حذف المحدد',
+  'nav.deleteSelectedTitle': 'حذف العناصر المحددة (Delete)',
+  'nav.clearSelection': 'إلغاء',
+  'nav.clearSelectionTitle': 'إلغاء التحديد المتعدد (Esc)',
+  'nav.unlinkedTitle': 'تنبيه فيديو غير مربوط',
+  'nav.unlinkedText': 'فيديو غير مربوط',
+  'nav.relinkBtn': 'إعادة ربط...',
+  'nav.relinkTitle': 'إعادة ربط ملف الفيديو الكامل المفقود لاستعادة المعاينة والشرائح',
+  'nav.reelBannerAria': 'معلومات فيديو العرض',
+  'nav.reelBannerText': 'فيديو مقسم ({count})',
+  'nav.editCuesBtn': 'تعديل التوقفات',
+  'nav.editCuesTitle': 'إعادة فتح استوديو نقاط التوقف لتعديل أماكن الشرائح على شريط الفيديو',
+  'nav.searchAria': 'تصفية الشرائح',
+  'nav.searchPlaceholder': 'بحث في الشرائح...',
+  'nav.searchClearTitle': 'مسح البحث',
+  'nav.filterAll': 'الكل',
+  'nav.filterVideo': 'بفيديو',
+  'nav.filterNotes': 'بملاحظات',
+  'nav.sectionHeader': 'الشرائح والانتقالات',
+  'nav.emptyText': 'لا توجد شرائح بعد.<br/>أضف صوراً وفيديوهات من شريط الأدوات.',
+  'nav.emptyFilterText': 'لا توجد شرائح مطابقة للبحث الحالي.',
+  'nav.slideAria': 'الشريحة {num}: {title}',
+  'nav.slideTitleHint': 'انقر للاختيار أو اسحب لإعادة الترتيب',
+  'nav.liveDotTitle': 'معروضة حالياً',
+  'nav.moveUpTitle': 'تحريك لأعلى',
+  'nav.moveDownTitle': 'تحريك لأسفل',
+  'nav.duplicateTitle': 'تكرار الشريحة',
+  'nav.deleteTitle': 'حذف الشريحة',
+  'nav.hasNotesTitle': 'تحتوي على ملاحظات محاضر',
+  'nav.transitionAria': 'الانتقال بعد الشريحة {num}',
+  'nav.transitionTitleHint': 'انقر لضبط الانتقال أو اسحب ملف فيديو MP4/WebM/MOV هنا',
+  'nav.relinkLabel': 'ربط: {name}',
+  'nav.addVideoTransition': '+ ربط فيديو انتقال',
+  'nav.ghostSame': 'الشريحة {from} (موضعها الحالي)',
+  'nav.ghostMove': 'نقل الشريحة {from} {arrow} موضع {to}',
+  'nav.slideMoved': 'تم نقل الشريحة إلى الموضع {pos}',
+
+  // Fallback short names (Navigator pill)
+  'fallback.short.crossfade': 'تلاشي',
+  'fallback.short.zoom-morph': 'تقريب',
+  'fallback.short.slide-push': 'إزاحة',
+  'fallback.short.wipe-reveal': 'مسح',
+  'fallback.short.iris-spotlight': 'بؤرة',
+  'fallback.short.cut': 'قطع فوري',
+
+  // Fallback full names (Inspector & Modals)
+  'fallback.full.crossfade': 'تلاشي ناعم',
+  'fallback.full.zoom-morph': 'تقريب حركي',
+  'fallback.full.slide-push': 'إزاحة جانبية',
+  'fallback.full.wipe-reveal': 'مسح سينمائي',
+  'fallback.full.iris-spotlight': 'إضاءة دائرية',
+  'fallback.full.cut': 'قطع مباشر',
+
+  // Easing options
+  'easing.easeInOut': 'انسيابي متوازن',
+  'easing.easeOut': 'تباطؤ عند النهاية',
+  'easing.easeIn': 'تسارع عند البداية',
+  'easing.linear': 'خطي ثابت',
+  'easing.step': 'قفزة فورية',
+  'easing.compact.easeInOut': 'انسيابي',
+  'easing.compact.easeOut': 'تباطؤ',
+  'easing.compact.easeIn': 'تسارع',
+  'easing.compact.linear': 'خطي',
+  'easing.compact.step': 'قفزة',
+
+  // Stage & Floating HUD
+  'stage.emptyHeading': 'أضف شرائح العرض وفيديوهات الانتقال',
+  'stage.emptyDesc':
+    'اسحب صور الشرائح وفيديوهات الانتقال وأفلتها هنا لترتيبها تلقائياً، أو ابدأ بعرض تجريبي لاستكشاف التحكم المباشر.',
+  'stage.emptyPickFiles': 'اختيار ملفات...',
+  'stage.emptyReelWorkflow': 'فيديو كامل {arrow} شرائح',
+  'stage.emptyLoadDemo': 'توليد عرض تجريبي',
+  'hud.prevTitle': 'الشريحة السابقة',
+  'hud.prevAria': 'الشريحة السابقة',
+  'hud.nextLabel': 'التالي',
+  'hud.skipLabel': 'تخطي',
+  'hud.nextTitle': 'تشغيل الانتقال للشريحة التالية (Space)',
+  'hud.nextAria': 'تشغيل الانتقال للشريحة التالية',
+  'hud.replayTitle': 'إعادة معاينة الانتقال الحالي',
+  'hud.replayAria': 'إعادة معاينة الانتقال الحالي',
+
+  // Inspector Tabs & Slide Section
+  'inspector.tabsAria': 'أقسام الخصائص',
+  'inspector.tabSlide': 'الشريحة',
+  'inspector.tabTransition': 'الانتقال',
+  'inspector.tabSettings': 'العرض',
+  'inspector.slideHeader': 'الشريحة {num}',
+  'inspector.slideTitleLabel': 'العنوان',
+  'inspector.imageFileLabel': 'ملف الصورة',
+  'inspector.replaceImage': 'استبدال صورة الشريحة...',
+  'inspector.timingSection': 'التوقيت والتوقف',
+  'inspector.autoAdvanceLabel': 'الانتقال التلقائي (ثانية)',
+  'inspector.manualHold': 'يدوي',
+  'inspector.autoAdvancePlaceholder': '0 (انتظار ضغطة المحاضر)',
+  'inspector.autoAdvanceHint': 'اتركه فارغاً للتوقف على الشريحة حتى تضغط المسافة أو الماوس.',
+  'inspector.notesSection': 'ملاحظات المحاضر',
+  'inspector.notesLabel': 'ملاحظات خاصة بالمحاضر (تظهر في وضع العرض الاحترافي)',
+  'inspector.notesPlaceholder': 'اكتب النقاط الرئيسية أو نص الحديث لهذه الشريحة...',
+  'inspector.duplicateSlide': 'تكرار هذه الشريحة',
+  'inspector.deleteSlide': 'حذف هذه الشريحة',
+
+  // Inspector Transition Section
+  'inspector.transPairHeader': 'فيديو الانتقال ({from} {arrow} {to})',
+  'inspector.transAfterHeader': 'فيديو الانتقال (بعد الشريحة {num})',
+  'inspector.startFrameAlt': 'إطار البداية',
+  'inspector.startFrameSlice': 'البداية ({time}s)',
+  'inspector.startFrameVideo': 'بداية الفيديو',
+  'inspector.endFrameAlt': 'إطار الوصول',
+  'inspector.endFrameSlice': 'الوصول ({time}s)',
+  'inspector.endFrameVideo': 'نهاية الفيديو',
+  'inspector.reelSliceNotice': 'هذا المقطع جزء من عرض مقسم ({count}). يمكنك إعادة فتح استوديو نقاط التوقف لضبط أماكن الشرائح.',
+  'inspector.editReelCues': 'تعديل نقاط توقف الفيديو الكامل...',
+  'inspector.replaceTransVideo': 'استبدال الفيديو...',
+  'inspector.removeTransVideo': 'إزالة الفيديو',
+  'inspector.sliceStartLabel': 'بداية المقطع (ث)',
+  'inspector.sliceEndLabel': 'نهاية المقطع / التوقف (ث)',
+  'inspector.splitPopoverBtn': 'إدراج شريحة توقف عند زمن محدد...',
+  'inspector.splitPopoverBtnTitle': 'قسمة فيديو الانتقال وإدراج شريحة توقف عند اللحظة المختارة',
+  'inspector.splitPopoverHeading': 'اختر لحظة التوقف الجديدة',
+  'inspector.splitPreviewAlt': 'معاينة لحظة التوقف',
+  'inspector.splitUseStageTime': 'زمن المشغّل',
+  'inspector.splitUseStageTimeTitle': 'استخدام الزمن المعروض حالياً على المنصة',
+  'inspector.cancel': 'إلغاء',
+  'inspector.splitConfirm': 'تقسيم هنا',
+  'inspector.splitConfirmBusy': 'جاري التقسيم...',
+  'inspector.extractEndSlice': 'استخراج إطار نهاية المقطع كشريحة',
+  'inspector.extractEndVideo': 'استخراج آخر إطار كشريحة تالية',
+  'inspector.extractEndBusy': 'جاري استخراج الإطار...',
+  'inspector.extractEndTitle': 'استخراج صورة آخر إطار من فيديو الانتقال وإضافتها كشريحة تالية تلقائياً',
+  'inspector.missingVideoBadge': 'ملف الفيديو غير مربوط بعد فتح المشروع',
+  'inspector.missingVideoName': 'الملف المطلوب',
+  'inspector.relinkVideoBtn': 'إعادة ربط ملف الفيديو...',
+  'inspector.noVideoHint': 'لا يوجد ملف فيديو مخصص لهذا الانتقال. أرفق فيديو موشن لتشغيله عند الانتقال للشريحة التالية.',
+  'inspector.linkVideoBtn': 'ربط ملف فيديو انتقال...',
+  'inspector.generateTransBtn': 'توليد فيديو انتقال حركي تلقائي',
+  'inspector.generateTransBusy': 'جاري التوليد...',
+  'inspector.generateTransTitle': 'توليد فيديو انتقال حركي حقيقي بين الشريحة الحالية والشريحة التالية',
+  'inspector.speedFallbackSection': 'السرعة والانتقال البديل',
+  'inspector.playbackSpeed': 'سرعة التشغيل',
+  'inspector.muteTransAudio': 'كتم صوت هذا الانتقال',
+  'inspector.fallbackStyleLabel': 'الانتقال البديل (بدون فيديو)',
+  'inspector.fallbackDurationLabel': 'المدة (مللي ثانية)',
+  'inspector.easingLabel': 'منحنى التسارع',
+  'inspector.applyAllTrans': 'تطبيق إعدادات الانتقال على كل الشرائح',
+  'inspector.applyAllTransTitle': 'تطبيق السرعة والانتقال البديل والمدة والمنحنى على كافة الشرائح',
+
+  // Inspector Project Settings Section
+  'settings.behaviorSection': 'سلوك التشغيل والتحكم',
+  'settings.interruptLabel': 'الضغط أثناء تشغيل فيديو الانتقال',
+  'settings.interruptSkip': 'تخطي فوري لنهاية الانتقال',
+  'settings.interruptLock': 'تجاهل الضغط حتى ينتهي الفيديو',
+  'settings.interruptFF': 'تسريع الإكمال للنهاية',
+  'settings.backwardLabel': 'سلوك الرجوع للشريحة السابقة',
+  'settings.backwardReverse': 'تشغيل فيديو الانتقال بالعكس',
+  'settings.backwardCrossfade': 'تلاشي ناعم للخلف',
+  'settings.backwardInstant': 'انتقال فوري',
+  'settings.globalSpeedLabel': 'السرعة العامة',
+  'settings.loopLabel': 'تكرار العرض تلقائياً',
+  'settings.displayAudioSection': 'الشاشة والصوت',
+  'settings.aspectRatioLabel': 'نسبة الأبعاد',
+  'settings.aspect169': '16:9 — شاشة عريضة قياسية',
+  'settings.aspect1610': '16:10 — شاشات العرض المحمولة',
+  'settings.aspect43': '4:3 — قياسي كلاسيكي',
+  'settings.aspect916': '9:16 — عرض طولي',
+  'settings.fitModeLabel': 'مطابقة أبعاد المحتوى',
+  'settings.fitContain': 'احتواء كامل دون قص',
+  'settings.fitCover': 'ملء الشاشة بالكامل',
+  'settings.hudLabel': 'عناصر التحكم في وضع ملء الشاشة',
+  'settings.hudMinimal': 'شريط مصغّر عند الحركة',
+  'settings.hudProgress': 'شريط التقدم فقط',
+  'settings.hudHidden': 'مخفي تماماً',
+  'settings.masterVolumeLabel': 'مستوى الصوت العام',
+  'settings.masterMutedLabel': 'كتم الصوت العام',
+  'settings.stageBgLabel': 'لون خلفية المنصة',
+  'settings.preloadLabel': 'استراتيجية التحميل المسبق',
+  'settings.preloadAll': 'تحميل مسبق لكامل العرض',
+  'settings.preloadAdjacent': 'تحميل الشرائح المجاورة فقط',
+  'settings.autohideCursorLabel': 'إخفاء مؤشر الماوس تلقائياً',
+  'settings.defaultFallbackLabel': 'الانتقال البديل الافتراضي',
+  'settings.defaultFallbackDurLabel': 'مدة الانتقال البديل (مللي ثانية)',
+  'settings.statsSection': 'ملخص وإحصائيات العرض',
+  'settings.statTotalSlides': 'إجمالي الشرائح',
+  'settings.statVideoTrans': 'انتقالات فيديو',
+  'settings.statCssTrans': 'انتقالات برمجية',
+  'settings.statWithNotes': 'بملاحظات محاضر',
+  'settings.statEstDuration': 'الزمن التقديري',
+  'settings.statMediaSize': 'حجم الوسائط',
+
+  // Fullscreen Presenter
+  'presenter.prevTitle': 'السابق',
+  'presenter.prevAria': 'الشريحة السابقة',
+  'presenter.nextLabel': 'التالي',
+  'presenter.nextTitle': 'التالي',
+  'presenter.nextAria': 'الشريحة التالية',
+  'presenter.timerTitle': 'وقت العرض المنقضي (انقر للتصفير أو اضغط T)',
+  'presenter.notesTitle': 'ملاحظات المحاضر (S)',
+  'presenter.notesAria': 'إظهار ملاحظات المحاضر',
+  'presenter.gridTitle': 'شبكة الشرائح (G)',
+  'presenter.gridAria': 'عرض شبكة الشرائح',
+  'presenter.exitTitle': 'إنهاء العرض (Esc)',
+  'presenter.exitAria': 'إنهاء وضع العرض',
+  'presenter.notesHeader': 'ملاحظات المحاضر',
+  'presenter.notesDrawerAria': 'ملاحظات المحاضر',
+  'presenter.notesForSlide': 'ملاحظات: {title}',
+  'presenter.notesEmpty': 'لا توجد ملاحظات مسجلة لهذه الشريحة.',
+  'presenter.notesNextSlide': 'الشريحة التالية: {title}',
+  'presenter.notesEnd': 'نهاية العرض',
+  'presenter.notesFontDec': 'تصغير الخط',
+  'presenter.notesFontInc': 'تكبير الخط',
+  'presenter.closeShortcut': 'إغلاق (S)',
+  'presenter.blackoutLabel': 'إعتام الشاشة [B]',
+  'presenter.whiteoutLabel': 'تبييض الشاشة [W]',
+  'presenter.gridModalAria': 'متصفح الشرائح السريع',
+  'presenter.gridHeading': 'الانتقال السريع إلى شريحة',
+  'presenter.close': 'إغلاق',
+
+  // Delete & Choice Modals (Crisp Formal Copy)
+  'delete.multiModalAria': 'حذف العناصر المحددة',
+  'delete.multiModalTitle': 'حذف المحدد ({summary})',
+  'delete.multiPrompt':
+    'تم تحديد عدة عناصر. اختر كيفية التعامل مع الانتقالات المجاورة للشرائح المحذوفة:',
+  'delete.aboveOptionTitle': 'حذف الانتقال السابق لكل شريحة محذوفة',
+  'delete.aboveOptionDesc':
+    'حذف الشرائح المحددة مع الانتقال السابق لها، والإبقاء على الانتقال التالي إن وُجد.',
+  'delete.belowOptionTitle': 'حذف الانتقال التالي لكل شريحة محذوفة',
+  'delete.belowOptionDesc':
+    'حذف الشرائح المحددة مع الانتقال التالي لها، والإبقاء على الانتقال السابق إن وُجد.',
+  'delete.mergeOptionTitle': 'دمج تلقائي للمقاطع المتصلة وحذف الباقي',
+  'delete.mergeOptionDesc':
+    'وصل المقاطع المتجاورة من نفس الفيديو تلقائياً وحذف الانتقالات غير المتصلة.',
+  'delete.singleModalAria': 'تحديد الانتقال المراد حذفه',
+  'delete.singleModalTitle': 'حذف الشريحة {num}: "{title}"',
+  'delete.singlePrompt': 'حدد الانتقال الذي تريد حذفه مع هذه الشريحة:',
+  'delete.singleAboveTitle': 'حذف الانتقال السابق',
+  'delete.singleAboveDesc': '{desc} — مع الإبقاء على الانتقال التالي ليربط الشريحتين {from} و{to}.',
+  'delete.singleAboveFirstDesc':
+    'هذه أول شريحة (لا يوجد انتقال سابق) — سيتم حذف الشريحة ونقل الانتقال التالي ليبدأ من الشريحة الجديدة.',
+  'delete.singleBelowTitle': 'حذف الانتقال التالي',
+  'delete.singleBelowDesc': '{desc} — مع الإبقاء على الانتقال السابق ليصل إلى الشريحة التالية.',
+  'delete.singleBelowLastDesc':
+    'هذه آخر شريحة — سيتم حذف الشريحة والانتقال المرتبط بها مع الإبقاء على الانتقال السابق ({from} {arrow} {to}).',
+  'delete.singleMergeTitle': 'دمج الانتقالين معاً (السابق والتالي)',
+  'delete.singleMergeDesc':
+    'وصل المقطعين المتجاورين ({start}s {arrow} {end}s) في انتقال واحد متصل بلا توقف أوسط.',
+  'delete.noPrevTransition': 'لا يوجد انتقال سابق',
+  'delete.descVideo': 'الانتقال ({from} {arrow} {to}) · فيديو {duration}s',
+  'delete.descFallback': 'الانتقال ({from} {arrow} {to}) · حركة بديلة ({style})',
+  'delete.summaryTransitionSingle': 'انتقال واحد',
+  'delete.summaryTransitionsMany': '{count} انتقالات',
+
+  // Single Video Choice Modal
+  'videoChoice.aria': 'طريقة استيراد الفيديو',
+  'videoChoice.title': 'استيراد فيديو إلى المشروع الحالي',
+  'videoChoice.fileLabel': 'الملف:',
+  'videoChoice.splitAppendTitle': 'تقسيم الفيديو إلى شرائح وإلحاقه بالعرض',
+  'videoChoice.splitAppendDesc': 'افتح استوديو نقاط التوقف لإضافة شرائح جديدة بعد الشرائح الحالية.',
+  'videoChoice.replaceAllTitle': 'استبدال العرض بالكامل بهذا الفيديو',
+  'videoChoice.replaceAllDesc':
+    'تحويل الفيديو إلى عرض مستقل مع مطابقة أبعاد المنصة تلقائياً ({ratio}).',
+  'videoChoice.attachTargetTitle': 'ربط كفيديو انتقال للشريحة {num}',
+  'videoChoice.attachTargetDesc': 'استخدامه كحركة انتقال بعد "{title}"',
+
+  // Reel Cue Studio Modal
+  'reel.modalAria': 'استوديو تحويل الفيديو إلى شرائح',
+  'reel.titleEdit': 'تعديل نقاط توقف الفيديو',
+  'reel.titleNew': 'استوديو تحويل الفيديو إلى شرائح',
+  'reel.audioYes': 'مع صوت',
+  'reel.audioNo': 'صامت',
+  'reel.modeGroupAria': 'وضع الإضافة',
+  'reel.modeAppend': 'إلحاق بالعرض الحالي',
+  'reel.modeReplace': 'بدء عرض جديد',
+  'reel.videoDecodeErr': 'تعذر فك ترميز هذا الفيديو للمعاينة.',
+  'reel.videoUnsupportedErr': 'تعذر تشغيل الفيديو ({name}). قد يكون الترميز غير مدعوم في هذه البيئة.',
+  'reel.play': 'تشغيل',
+  'reel.pause': 'إيقاف',
+  'reel.playTitle': 'تشغيل / إيقاف مؤقت (Space)',
+  'reel.backHalfTitle': 'رجوع نصف ثانية',
+  'reel.backFrameTitle': 'إطار للخلف (, أو السهم)',
+  'reel.fwdFrameTitle': 'إطار للأمام (. أو السهم)',
+  'reel.fwdHalfTitle': 'تقديم نصف ثانية',
+  'reel.muteTitle': 'كتم / تشغيل الصوت (M)',
+  'reel.undo': 'تراجع',
+  'reel.undoTitle': 'تراجع (Ctrl+Z)',
+  'reel.redo': 'إعادة',
+  'reel.redoTitle': 'إعادة (Ctrl+Y)',
+  'reel.zoomOutTitle': 'تصغير الشريط الزمني (-)',
+  'reel.zoomFit': 'ملاءمة',
+  'reel.zoomFitTitle': 'ملاءمة الشريط بالكامل',
+  'reel.zoomInTitle': 'تكبير الشريط الزمني (+)',
+  'reel.shortcutHint': 'Space: تشغيل · الأسهم / , . : إطار · C: إضافة · Ctrl+C/V/D/A · Del: حذف',
+  'reel.timelineAria': 'الشريط الزمني لنقاط التوقف',
+  'reel.filmstripLoading': 'جاري تحميل شريط الإطارات...',
+  'reel.addCueBtn': 'إضافة توقف عند المؤشر (C)',
+  'reel.autoDetectBtn': 'كشف تلقائي لمراحل التوقف',
+  'reel.autoDetectTitle': 'تحليل إطارات الفيديو لاكتشاف اللحظات الثابتة وتغيير المشاهد تلقائياً',
+  'reel.sensitivityAria': 'حساسية الاكتشاف التلقائي',
+  'reel.sensitivityLow': 'دقة هادئة',
+  'reel.sensitivityMedium': 'دقة متوازنة',
+  'reel.sensitivityHigh': 'حساسية عالية',
+  'reel.uniformLabel': 'تقسيم متساوٍ:',
+  'reel.cues3': '3 شرائح',
+  'reel.cues4': '4 شرائح',
+  'reel.cues5': '5 شرائح',
+  'reel.cues6': '6 شرائح',
+  'reel.cancelDetect': 'إلغاء',
+  'reel.slidesHeading': 'الشرائح الناتجة ومراحل التوقف',
+  'reel.slidesSubtext': 'انقر للمعاينة أو استخدم أزرار ±0.05s للضبط الدقيق',
+  'reel.fitRatioLabel': 'مطابقة أبعاد العرض ({ratio})',
+  'reel.applySave': 'حفظ وتحديث التوقفات ({count})',
+  'reel.applyAppend': 'إلحاق الشرائح بالعرض ({count})',
+  'reel.applyCreate': 'إنشاء الشرائح ومراحل التوقف ({count})',
+  'reel.applyingBusy': 'جاري التحويل...',
+  'reel.stopExtract': 'إيقاف الاستخراج',
+  'reel.cancel': 'إلغاء',
+  'reel.nudgeBackTitle': 'تقديم -0.05s للخلف',
+  'reel.nudgeFwdTitle': 'تأخير +0.05s للأمام',
+  'reel.delCueTitle': 'حذف نقطة التوقف',
+  'reel.easingSelectTitle': 'منحنى التسارع للانتقال',
+  'reel.cueBadgeTitle': 'نقطة توقف {num}: {time}s{suffix} (اسحب للتعديل)',
+  'reel.cueAria': 'نقطة التوقف {num} عند {time} ثانية',
+  'reel.slideCardAria': 'الشريحة {num} عند {time} ثانية',
+  'reel.thumbAlt': 'معاينة توقف {num}',
+  'reel.thumbLoading': 'جاري التحميل',
+  'reel.segEnd': 'نهاية',
+  'reel.kind.pause-settle': 'استقرار',
+  'reel.kind.velocity-valley': 'توقف حركي',
+  'reel.kind.scene-cut': 'قطع مشهد',
+  'reel.detectBadgeTitle': 'دقة الاكتشاف التلقائي {conf}%',
+  'reel.method.pause-plateaus': 'استقرار الحركة',
+  'reel.method.scene-cuts': 'تغيير المشاهد',
+  'reel.method.hybrid': 'تحليل هجين',
+  'reel.method.uniform-fallback': 'تقسيم متساوٍ',
+
+  // Reel Status Messages
+  'reel.status.undo': 'تم التراجع عن تعديل نقاط التوقف',
+  'reel.status.redo': 'تمت إعادة تعديل نقاط التوقف',
+  'reel.status.copied': 'تم نسخ {count} نقاط توقف',
+  'reel.status.pasted': 'تم لصق نقاط التوقف عند {time}s',
+  'reel.status.duplicated': 'تم تكرار نقاط التوقف المحددة',
+  'reel.status.minCues': 'لا يمكن حذف نقاط التوقف (الحد الأدنى نقطتا توقف)',
+  'reel.status.tooCloseDrag': 'لا يمكن الاقتراب أكثر من نقطة التوقف المجاورة (الحد الأدنى 0.08s)',
+  'reel.status.tooCloseAdd': 'توجد نقطة توقف قريبة جداً بالفعل عند {time}s (الحد الأدنى 0.08s)',
+  'reel.status.analyzingInit': 'جاري تحليل الفيديو واكتشاف مراحل التوقف... 0%',
+  'reel.status.analyzingProgress': 'جاري تحليل الفيديو واكتشاف مراحل التوقف... {pct}%',
+  'reel.status.detected': 'تم اقتراح {count} ({method}) — يمكنك التعديل الآن',
+  'reel.status.detectCancelled': 'تم إلغاء التحليل التلقائي',
+  'reel.status.detectFailed': 'تعذر تحليل الفيديو تلقائياً',
+  'reel.status.extractAborted': 'تم إيقاف استخراج الشرائح. يمكنك تعديل نقاط التوقف والمحاولة مجدداً.',
+  'reel.status.extractFailed': 'فشل تقسيم الفيديو إلى شرائح',
+
+  // Shortcuts Modal
+  'shortcuts.modalAria': 'اختصارات لوحة المفاتيح',
+  'shortcuts.title': 'اختصارات لوحة المفاتيح',
+  'shortcuts.studioSection': 'الاستوديو والتحرير',
+  'shortcuts.undo': 'تراجع عن آخر تعديل',
+  'shortcuts.redo': 'إعادة التعديل',
+  'shortcuts.duplicate': 'تكرار الشريحة المحددة',
+  'shortcuts.delete': 'حذف المحدد',
+  'shortcuts.selectAll': 'تحديد كل الشرائح',
+  'shortcuts.saveOpen': 'حفظ / فتح مشروع',
+  'shortcuts.startPresenter': 'تشغيل العرض بملء الشاشة',
+  'shortcuts.presenterSection': 'وضع العرض الاحترافي',
+  'shortcuts.next': 'الشريحة التالية / تخطي',
+  'shortcuts.prev': 'الشريحة السابقة',
+  'shortcuts.notes': 'إظهار ملاحظات المحاضر',
+  'shortcuts.resetTimer': 'تصفير مؤقت العرض',
+  'shortcuts.grid': 'شبكة الشرائح السريعة',
+  'shortcuts.blackWhite': 'إعتام / تبييض الشاشة',
+  'shortcuts.laser': 'مؤشر الليزر',
+  'shortcuts.jumpNum': 'الانتقال لرقم شريحة',
+  'shortcuts.exit': 'إنهاء العرض',
+  'shortcuts.footerHint': 'اضغط <kbd class="kbd-badge">Esc</kbd> أو انقر خارج النافذة للإغلاق',
+  'shortcuts.doneBtn': 'حسناً',
+
+  // Notifications & Errors (UI + Core Services + Store)
+  'notify.undoDone': 'تم التراجع عن آخر خطوة',
+  'notify.redoDone': 'تمت إعادة الخطوة',
+  'notify.slideDuplicated': 'تم تكرار الشريحة بنجاح',
+  'notify.slideDeleted': 'تم حذف الشريحة',
+  'notify.slideDeletedAbove': 'تم حذف الشريحة {num} مع الانتقال السابق لها',
+  'notify.slideDeletedBelow': 'تم حذف الشريحة {num} مع الانتقال التالي لها',
+  'notify.slideDeletedMerge': 'تم حذف الشريحة {num} ودمج الانتقالين المتجاورين',
+  'notify.batchDeletedTransitionsOnly': 'تم حذف {count} انتقالات فيديو',
+  'notify.batchResetTransitions': 'تمت إعادة ضبط الانتقالات المحددة',
+  'notify.batchDeletedCombined': 'تم حذف {summary}',
+  'notify.openProjectProgress': 'جاري فتح المشروع ({name})...',
+  'notify.openProjectSuccess': 'تم فتح المشروع: {title}',
+  'notify.openProjectError': 'فشل فتح ملف المشروع',
+  'notify.openSelectedProjectError': 'فشل فتح ملف المشروع المحدد',
+  'notify.saveProjectProgress': 'جاري تجهيز وحفظ ملف المشروع (.mpres)...',
+  'notify.saveProjectSuccess': 'تم حفظ المشروع ({name})',
+  'notify.saveProjectSuccessDefault': 'تم حفظ ملف المشروع (.mpres)',
+  'notify.saveProjectError': 'تعذر حفظ ملف المشروع',
+  'notify.importMediaError': 'فشل استيراد الوسائط',
+  'notify.importFilesError': 'فشل استيراد الملفات المحددة',
+  'notify.transRemoved': 'تمت إزالة فيديو الانتقال',
+  'notify.rangeInvalid': 'نطاق المقطع غير صالح: يجب أن تكون البداية أقل من النهاية بفاصل لا يقل عن 0.05 ثانية',
+  'notify.stageTimeOutOfRange': 'المشغّل متوقف حالياً خارج نطاق هذا المقطع',
+  'notify.splitFailed': 'فشل تقسيم مقطع الانتقال',
+  'notify.extractFailed': 'فشل استخراج الإطار من الفيديو',
+  'notify.appliedToAll': 'تم تطبيق إعدادات الانتقال على {count} شريحة',
+  'notify.slideImageUpdated': 'تم تحديث صورة الشريحة ({name})',
+  'notify.slideAdded': 'تمت إضافة الشريحة ({name})',
+  'notify.imageInvalid': 'ملف الصورة غير صالح',
+  'notify.analyzingVideo': 'جاري تحليل الفيديو ({name})...',
+  'notify.transVideoLinked': 'تم ربط فيديو الانتقال ({name} · {dur}s)',
+  'notify.videoUnsupported': 'ملف الفيديو غير مدعوم',
+  'notify.batchScanning': 'جاري فرز وتحليل {count} ملف...',
+  'notify.batchProgress': 'جاري معالجة ({done}/{total}): {name}',
+  'notify.batchImportedPartial': 'تم استيراد {slides}، واستبعاد {rejected} ملف غير صالح.',
+  'notify.batchNothingValid': 'لم يتم العثور على وسائط صالحة للإضافة',
+  'notify.batchImportedSuccess': 'تم استيراد {slides} وربط {matched} انتقال حركي',
+  'notify.demoReady': 'تم تجهيز العرض التجريبي (4 شرائح مع فيديوهات انتقال حركية)',
+  'notify.demoFailed': 'تعذر إنشاء العرض التجريبي',
+  'notify.pickValidVideo': 'يرجى اختيار ملف فيديو صالح (MP4, WebM, MOV)',
+  'notify.pickVideoFailed': 'فشل اختيار ملف الفيديو',
+  'notify.relinkFailed': 'فشل إعادة ربط الفيديو',
+  'notify.relinkCannot': 'تعذر إعادة ربط ملف الفيديو',
+  'notify.relinkingVideo': 'جاري إعادة ربط الفيديو ({name})...',
+  'notify.restoringFrames': 'جاري استعادة إطارات الشرائح ({done}/{total})...',
+  'notify.relinkUpdatedSlides': 'تم إعادة ربط الفيديو وتحديث {count}',
+  'notify.videoAttachedAfterSlide': 'تم ربط الفيديو بالانتقال بعد الشريحة {num}',
+  'notify.reelCreated': 'تم إنشاء شرائح العرض ومراحل التوقف من الفيديو بنجاح',
+  'notify.videoLinkedSuccess': 'تم ربط الفيديو ({name}) بنجاح',
+  'notify.invalidSliceTimes': 'قيم توقيت المقطع غير صالحة',
+  'notify.minSliceDelta': 'يجب أن تكون نهاية المقطع أكبر من بدايته بمقدار 0.05 ثانية على الأقل',
+  'notify.noTransVideoToSplit': 'لا يوجد فيديو انتقال مرتبط بهذه الشريحة لتقسيمه',
+  'notify.clipTooShortToSplit': 'المقطع أقصر من أن يُقسم إلى مرحلتين (الحد الأدنى 0.20 ثانية)',
+  'notify.splitTimeOutOfBounds': 'يجب أن يكون وقت التقسيم بين {min}s و {max}s',
+  'notify.splitSuccess': 'تم تقسيم المقطع عند {time}s بنجاح',
+  'notify.splitExtractFailed': 'فشل استخراج إطار التقسيم من الفيديو',
+  'notify.needNextSlideToGenerate': 'أضف شريحة تالية أولاً لتوليد فيديو انتقال بينهما',
+  'notify.generatedTransSuccess': 'تم توليد وربط فيديو الانتقال الحركي بنجاح',
+  'notify.noTransVideoToExtract': 'لا يوجد فيديو انتقال مرتبط بهذه الشريحة لاستخراج الإطار منه.',
+  'notify.extractedEndSuccess': 'تم استخراج الإطار من نهاية المقطع وإضافته كشريحة تالية بنجاح',
+  'notify.languageSwitched': 'تم تغيير لغة التطبيق إلى العربية',
+  'notify.themeSwitched': 'تم تغيير المظهر إلى: {theme}',
+
+  // Swatches, Dock, Command Palette & Context Menu
+  'settings.stageSwatchesLabel': 'ألوان خلفية مقترحة',
+  'swatch.obsidian': 'أسود حبر',
+  'swatch.carbon': 'فحمي',
+  'swatch.midnight': 'كحلي ليلي',
+  'swatch.graphite': 'جرافيت',
+  'swatch.indigo': 'نيلي داكن',
+  'swatch.emerald': 'زمردي داكن',
+  'swatch.paper': 'ورقي ناعم',
+  'swatch.daylight': 'أبيض ناصع',
+  'dock.title': 'شريط التسلسل والانتقالات',
+  'dock.toggleTitle': 'طي أو فتح شريط التسلسل السفلي',
+  'dock.openCuesBtn': 'استوديو نقاط التوقف',
+  'dock.totalDuration': 'المدة الكلية',
+  'dock.slidesCount': 'الشرائح',
+  'cmd.placeholder': 'اكتب أمراً أو ابحث عن إجراء...',
+  'cmd.empty': 'لا توجد أوامر مطابقة لبحثك.',
+  'cmd.groupFile': 'المشروع والوسائط',
+  'cmd.groupEdit': 'التحرير والتنسيق',
+  'cmd.groupView': 'العرض والمظهر',
+  'cmd.groupPresent': 'وضع التقديم',
+  'cmd.toggleTheme': 'تبديل المظهر (داكن / فاتح / تلقائي)',
+  'cmd.toggleLang': 'تبديل اللغة (العربية / الإنجليزية)',
+  'cmd.toggleTimelineDock': 'إظهار أو إخفاء شريط التسلسل السفلي',
+  'ctx.moveUp': 'تحريك للأعلى',
+  'ctx.moveDown': 'تحريك للأسفل',
+  'ctx.duplicate': 'تكرار الشريحة',
+  'ctx.editTransition': 'تعديل الانتقال التالي',
+  'ctx.replaceImage': 'استبدال صورة الشريحة',
+  'ctx.openCueStudio': 'تعديل نقاط التوقف بالفيديو',
+  'ctx.delete': 'حذف الشريحة',
+
+  // Core Engine, Services & Errors
+  'core.cancelled': 'تم إلغاء العملية',
+  'core.extractSlidesCancelled': 'تم إلغاء استخراج الشرائح',
+  'core.relinkCancelled': 'تم إلغاء إعادة ربط الفيديو',
+  'core.extractFramesCancelled': 'تم إلغاء عملية استخراج الإطارات',
+  'core.filmstripCancelled': 'تم إلغاء إنشاء شريط المصغرات',
+  'core.canvas2dInitFailed': 'تعذر تهيئة محرك الرسم ثنائي الأبعاد (Canvas 2D)',
+  'core.unknown': 'غير معروف',
+  'core.videoUrlMissing': 'رابط الفيديو غير متاح لاستخراج الإطارات ({name})',
+  'core.videoReadExtractFailed': 'تعذر قراءة الفيديو لاستخراج الإطار: {name}',
+  'core.videoNoVisualTrackExtract': 'الفيديو ({name}) لا يحتوي على مسار فيديو مرئي صالح لاستخراج الإطارات.',
+  'core.videoNoDurationExtract': 'تعذر تحديد مدة الفيديو ({name}) لاستخراج الإطارات.',
+  'core.extractCtxFailed': 'تعذر إنشاء سياق الرسم لاستخراج الشريحة',
+  'core.frameNotReady': 'الإطار المستهدف عند {time}s غير جاهز للرسم.',
+  'core.analyzeCtxFailed': 'تعذر إنشاء سياق الرسم لتحليل الإطار',
+  'core.decoderClosedAlready': 'تم إغلاق جلسة فك تشفير الفيديو بالفعل',
+  'core.decoderClosed': 'تم إغلاق جلسة فك تشفير الفيديو',
+  'core.decodeFrameFailed': 'تعذر فك تشفير الإطار عند {time}s من الفيديو ({name})',
+  'core.pngEncodeTimeout': 'انتهت مهلة ترميز صورة الشريحة PNG',
+  'core.frameToImageFailed': 'تعذر تحويل الإطار المستخرج إلى صورة',
+  'core.unsupportedExt': 'صيغة الملف (.{ext}) غير مدعومة.',
+  'core.expectedKindImage': 'صورة شريحة ثابتة (PNG/JPG/WEBP)',
+  'core.expectedKindVideo': 'فيديو انتقال حركي (MP4/WEBM/MOV)',
+  'core.actualKindImage': 'صورة',
+  'core.actualKindVideo': 'فيديو',
+  'core.kindMismatch': 'هذا المكان مخصص لـ {expected}، لكن الملف المرفوع هو {actual} ({name}).',
+  'core.emptyFile': 'الملف ({name}) فارغ أو تالف (0 بايت).',
+  'core.importCancelled': 'تم إلغاء عملية استيراد الملف',
+  'core.invalidFile': 'ملف غير صالح',
+  'core.videoLoadCancelled': 'تم إلغاء تحميل الفيديو',
+  'core.videoDecodeHint': 'تعذر فك ترميز ملف الفيديو ({name}). تأكد أنه بصيغة MP4 أو WebM صالحة.',
+  'core.videoNoVisualTrack': 'الملف ({name}) لا يحتوي على مسار فيديو مرئي صالح (أو أن الترميز غير مدعوم).',
+  'core.videoMetadataTimeout': 'انتهت مهلة قراءة بيانات الفيديو: {name}',
+  'core.videoDurationCancelled': 'تم إلغاء قراءة مدة الفيديو',
+  'core.videoSeekCancelled': 'تم إلغاء الانتقال داخل الفيديو',
+  'core.videoSeekFailed': 'تعذر الانتقال إلى اللحظة {time}s في الفيديو',
+  'core.videoSeekTimeout': 'انتهت مهلة الانتقال إلى اللحظة {time}s في الفيديو',
+  'core.videoSetPosFailed': 'تعذر ضبط موضع الفيديو عند {time}s',
+  'core.imageImportCancelled': 'تم إلغاء استيراد الصورة',
+  'core.imageReadTimeout': 'انتهت مهلة قراءة ملف الصورة: {name}',
+  'core.imageCorrupted': 'ملف الصورة ({name}) تالف أو أبعاده غير صالحة.',
+  'core.imageReadFailed': 'تعذر قراءة ملف الصورة: {name}',
+  'core.videoAnalyzeCancelled': 'تم إلغاء تحليل الفيديو',
+  'core.videoDurationUnknown': 'تعذر تحديد مدة الفيديو ({name}). قد يكون الملف تالفاً.',
+  'core.videoAnalyzeError': 'خطأ أثناء تحليل الفيديو: {name}',
+  'core.projectMissingManifest': 'ملف المشروع (.mpres) تالف أو لا يحتوي على manifest.json.',
+  'core.projectInvalidFile': 'ملف المشروع غير صالح أو تالف.',
+  'core.fileReadError': 'خطأ في قراءة الملف',
+  'core.videoFramesExtractError': 'تعذر استخراج إطارات الفيديو ({name})',
+  'core.videoProcessError': 'تعذر معالجة الفيديو ({name})',
+  'core.motionAnalyzeCtxFailed': 'تعذر إنشاء سياق تحليل حركة الفيديو',
+  'core.demoProgressSlides': 'جاري إنشاء صور الشرائح الثابتة...',
+  'core.demoProgressVideo': 'جاري رندرة فيديو الانتقال الحركي ({from} {arrow} {to})...',
+  'core.demoRecordError': 'خطأ في تسجيل الفيديو الحركي التجريبي',
+  'core.demoLoadSlideImgError': 'تعذر تحميل صورة الشريحة لتوليد الانتقال',
+  'core.transRecordError': 'خطأ في تسجيل فيديو الانتقال الحركي',
+} as const;
+
+export type TranslationKey = keyof typeof AR_STRINGS;
+
+const EN_STRINGS: Record<TranslationKey, string> = {
+  // App & Default Titles
+  'app.name': 'Motion Presentation Studio',
+  'app.titleDefault': 'New Motion Presentation',
+  'app.titleUntitled': 'Untitled Presentation',
+  'app.titleImported': 'Imported Presentation',
+  'app.titleDemo': 'Motion Presentation Studio — Demo',
+  'slide.defaultTitle': 'Slide {index}',
+  'slide.duplicateSuffix': '(Copy)',
+  'slide.introExtracted': 'Intro Slide (Extracted)',
+  'slide.startOf': 'Slide {index} (Start of {name})',
+  'slide.endOf': 'Slide {index} (End of {name})',
+  'slide.cueTitle': 'Hold Cue {index} ({time}s)',
+  'slide.holdTitle': 'Hold Cue ({time}s)',
+  'slide.extractedAt': 'Slide {index} ({time}s)',
+  'slide.extractedEnd': 'Slide {index} (From Video End)',
+  'slide.mockCanvasLabel': 'Slide {index} — {name}',
+  'slide.filePrefixIntro': 'intro',
+  'slide.filePrefixSlide': 'slide',
+  'slide.filePrefixStart': 'start',
+  'slide.filePrefixEnd': 'end',
+  'slide.filePrefixHold': 'cue',
+  'slide.filePrefixExtracted': 'extracted_slide',
+
+  // Landmarks & Shell
+  'shell.toolbarAria': 'Main Toolbar',
+  'shell.navigatorAria': 'Slide Navigator',
+  'shell.stageAria': 'Preview Stage',
+  'shell.hudAria': 'Stage Playback Controls',
+  'shell.inspectorAria': 'Inspector Panel',
+  'shell.navResizerAria': 'Resize Slide Navigator Panel',
+  'shell.inspectorResizerAria': 'Resize Inspector Panel',
+  'shell.resizerTitle': 'Drag to resize · Double-click to reset width',
+  'shell.dropOverlayText': 'Drop images or videos to add them to the presentation',
+
+  // Toolbar
+  'toolbar.toggleNavTitle': 'Show or hide Slide Navigator',
+  'toolbar.toggleInspectorTitle': 'Show or hide Inspector panel',
+  'toolbar.projectTitleAria': 'Presentation Title',
+  'toolbar.projectTitlePlaceholder': 'Presentation title...',
+  'toolbar.openProject': 'Open',
+  'toolbar.openProjectTitle': 'Open saved project (Ctrl+O)',
+  'toolbar.importMedia': 'Import Media',
+  'toolbar.importMediaTitle': 'Batch import slide images and transition videos',
+  'toolbar.reelWorkflow': 'Video {arrow} Slides',
+  'toolbar.reelWorkflowTitle': 'Turn a continuous motion video into slides and hold cues',
+  'toolbar.addSlide': 'New Slide',
+  'toolbar.addSlideTitle': 'Add a static image slide',
+  'toolbar.loadDemo': 'Demo Deck',
+  'toolbar.loadDemoBusy': 'Preparing...',
+  'toolbar.loadDemoTitle': 'Generate a live demo deck with real motion transition videos',
+  'toolbar.saveProject': 'Save',
+  'toolbar.saveProjectTitle': 'Save full presentation bundle (Ctrl+S)',
+  'toolbar.undoTitle': 'Undo (Ctrl+Z)',
+  'toolbar.redoTitle': 'Redo (Ctrl+Y)',
+  'toolbar.shortcutsTitle': 'Keyboard Shortcuts (?)',
+  'toolbar.playPresentation': 'Play',
+  'toolbar.playPresentationTitle': 'Start fullscreen interactive presentation (F5)',
+  'toolbar.langToggleTitle': 'Switch interface language to Arabic',
+  'toolbar.langShort': 'عربي',
+  'toolbar.langCurrent': 'EN',
+  'toolbar.themeToggleTitle': 'Switch appearance theme (Dark / Light / Auto)',
+  'toolbar.commandPaletteTitle': 'Command Palette (Ctrl+K)',
+  'theme.system': 'Auto',
+  'theme.dark': 'Dark',
+  'theme.light': 'Light',
+
+  // Navigator & Multi-select & Filter
+  'nav.multiSelectAria': 'Multiple Selection',
+  'nav.multiSelectSlides': '{count} slides',
+  'nav.multiSelectTransitions': '{count} transitions',
+  'nav.multiSelectPrefix': 'Selected:',
+  'nav.deleteSelected': 'Delete Selected',
+  'nav.deleteSelectedTitle': 'Delete selected items (Delete)',
+  'nav.clearSelection': 'Cancel',
+  'nav.clearSelectionTitle': 'Clear selection (Esc)',
+  'nav.unlinkedTitle': 'Unlinked Video Alert',
+  'nav.unlinkedText': 'Unlinked Video',
+  'nav.relinkBtn': 'Relink...',
+  'nav.relinkTitle': 'Relink the missing master video file to restore previews and slides',
+  'nav.reelBannerAria': 'Reel Presentation Info',
+  'nav.reelBannerText': 'Sliced Video ({count})',
+  'nav.editCuesBtn': 'Edit Cues',
+  'nav.editCuesTitle': 'Reopen Hold Cue Studio to adjust slide stops on the timeline',
+  'nav.searchAria': 'Filter Slides',
+  'nav.searchPlaceholder': 'Search slides...',
+  'nav.searchClearTitle': 'Clear search',
+  'nav.filterAll': 'All',
+  'nav.filterVideo': 'Video',
+  'nav.filterNotes': 'Notes',
+  'nav.sectionHeader': 'Slides & Transitions',
+  'nav.emptyText': 'No slides yet.<br/>Add images or videos from the toolbar.',
+  'nav.emptyFilterText': 'No slides match the current filter.',
+  'nav.slideAria': 'Slide {num}: {title}',
+  'nav.slideTitleHint': 'Click to select or drag to reorder',
+  'nav.liveDotTitle': 'Currently on stage',
+  'nav.moveUpTitle': 'Move up',
+  'nav.moveDownTitle': 'Move down',
+  'nav.duplicateTitle': 'Duplicate slide',
+  'nav.deleteTitle': 'Delete slide',
+  'nav.hasNotesTitle': 'Has speaker notes',
+  'nav.transitionAria': 'Transition after slide {num}',
+  'nav.transitionTitleHint': 'Click to configure transition or drop an MP4/WebM/MOV clip here',
+  'nav.relinkLabel': 'Relink: {name}',
+  'nav.addVideoTransition': '+ Link Transition Video',
+  'nav.ghostSame': 'Slide {from} (Current position)',
+  'nav.ghostMove': 'Move Slide {from} {arrow} Position {to}',
+  'nav.slideMoved': 'Moved slide to position {pos}',
+
+  // Fallback short names
+  'fallback.short.crossfade': 'Fade',
+  'fallback.short.zoom-morph': 'Zoom',
+  'fallback.short.slide-push': 'Push',
+  'fallback.short.wipe-reveal': 'Wipe',
+  'fallback.short.iris-spotlight': 'Iris',
+  'fallback.short.cut': 'Cut',
+
+  // Fallback full names
+  'fallback.full.crossfade': 'Crossfade',
+  'fallback.full.zoom-morph': 'Zoom Morph',
+  'fallback.full.slide-push': 'Slide Push',
+  'fallback.full.wipe-reveal': 'Cinematic Wipe',
+  'fallback.full.iris-spotlight': 'Iris Spotlight',
+  'fallback.full.cut': 'Direct Cut',
+
+  // Easing options
+  'easing.easeInOut': 'Ease In-Out',
+  'easing.easeOut': 'Ease Out',
+  'easing.easeIn': 'Ease In',
+  'easing.linear': 'Linear',
+  'easing.step': 'Step Jump',
+  'easing.compact.easeInOut': 'In-Out',
+  'easing.compact.easeOut': 'Out',
+  'easing.compact.easeIn': 'In',
+  'easing.compact.linear': 'Linear',
+  'easing.compact.step': 'Step',
+
+  // Stage & Floating HUD
+  'stage.emptyHeading': 'Add Presentation Slides & Motion Transitions',
+  'stage.emptyDesc':
+    'Drag and drop slide images and motion transition videos here to auto-pair them, or launch a Demo Deck to test live stage controls.',
+  'stage.emptyPickFiles': 'Choose Files...',
+  'stage.emptyReelWorkflow': 'Full Video {arrow} Slides',
+  'stage.emptyLoadDemo': 'Load Demo Deck',
+  'hud.prevTitle': 'Previous Slide',
+  'hud.prevAria': 'Previous Slide',
+  'hud.nextLabel': 'Next',
+  'hud.skipLabel': 'Skip',
+  'hud.nextTitle': 'Play transition to next slide (Space)',
+  'hud.nextAria': 'Play transition to next slide',
+  'hud.replayTitle': 'Replay current transition',
+  'hud.replayAria': 'Replay current transition',
+
+  // Inspector Tabs & Slide Section
+  'inspector.tabsAria': 'Inspector Sections',
+  'inspector.tabSlide': 'Slide',
+  'inspector.tabTransition': 'Transition',
+  'inspector.tabSettings': 'Deck',
+  'inspector.slideHeader': 'Slide {num}',
+  'inspector.slideTitleLabel': 'Title',
+  'inspector.imageFileLabel': 'Image Asset',
+  'inspector.replaceImage': 'Replace Slide Image...',
+  'inspector.timingSection': 'Timing & Hold',
+  'inspector.autoAdvanceLabel': 'Auto-Advance (sec)',
+  'inspector.manualHold': 'Manual',
+  'inspector.autoAdvancePlaceholder': '0 (Wait for presenter click)',
+  'inspector.autoAdvanceHint': 'Leave empty to hold on this slide until Space or click.',
+  'inspector.notesSection': 'Speaker Notes',
+  'inspector.notesLabel': 'Presenter-only notes (visible in Fullscreen Presenter)',
+  'inspector.notesPlaceholder': 'Write key talking points for this slide...',
+  'inspector.duplicateSlide': 'Duplicate This Slide',
+  'inspector.deleteSlide': 'Delete This Slide',
+
+  // Inspector Transition Section
+  'inspector.transPairHeader': 'Transition Video ({from} {arrow} {to})',
+  'inspector.transAfterHeader': 'Transition Video (After Slide {num})',
+  'inspector.startFrameAlt': 'Start frame preview',
+  'inspector.startFrameSlice': 'Start ({time}s)',
+  'inspector.startFrameVideo': 'Video Start',
+  'inspector.endFrameAlt': 'End frame preview',
+  'inspector.endFrameSlice': 'Arrive ({time}s)',
+  'inspector.endFrameVideo': 'Video End',
+  'inspector.reelSliceNotice': 'This clip belongs to a sliced deck ({count}). Open Cue Studio to adjust stop timestamps.',
+  'inspector.editReelCues': 'Edit Full Video Cues...',
+  'inspector.replaceTransVideo': 'Replace Video...',
+  'inspector.removeTransVideo': 'Remove Video',
+  'inspector.sliceStartLabel': 'Clip Start (s)',
+  'inspector.sliceEndLabel': 'Clip End / Hold (s)',
+  'inspector.splitPopoverBtn': 'Insert Hold Slide at Timestamp...',
+  'inspector.splitPopoverBtnTitle': 'Split the transition video and insert a new hold slide at a specific timestamp',
+  'inspector.splitPopoverHeading': 'Pick New Hold Timestamp',
+  'inspector.splitPreviewAlt': 'Hold timestamp preview',
+  'inspector.splitUseStageTime': 'Stage Time',
+  'inspector.splitUseStageTimeTitle': 'Use the current timestamp displayed on stage',
+  'inspector.cancel': 'Cancel',
+  'inspector.splitConfirm': 'Split Here',
+  'inspector.splitConfirmBusy': 'Splitting...',
+  'inspector.extractEndSlice': 'Extract Clip End Frame as Slide',
+  'inspector.extractEndVideo': 'Extract Last Frame as Next Slide',
+  'inspector.extractEndBusy': 'Extracting Frame...',
+  'inspector.extractEndTitle': 'Extract the end frame image of this transition as the next slide',
+  'inspector.missingVideoBadge': 'Video file unlinked after opening project',
+  'inspector.missingVideoName': 'Expected file',
+  'inspector.relinkVideoBtn': 'Relink Video File...',
+  'inspector.noVideoHint': 'No custom motion video linked to this transition yet. Attach a clip to play when advancing.',
+  'inspector.linkVideoBtn': 'Link Transition Video...',
+  'inspector.generateTransBtn': 'Auto-Generate Motion Transition Video',
+  'inspector.generateTransBusy': 'Generating...',
+  'inspector.generateTransTitle': 'Synthesize a real motion video transitioning between this slide and the next',
+  'inspector.speedFallbackSection': 'Speed & Fallback Motion',
+  'inspector.playbackSpeed': 'Playback Speed',
+  'inspector.muteTransAudio': 'Mute transition audio',
+  'inspector.fallbackStyleLabel': 'Fallback Style (No Video)',
+  'inspector.fallbackDurationLabel': 'Duration (ms)',
+  'inspector.easingLabel': 'Motion Easing',
+  'inspector.applyAllTrans': 'Apply Transition Settings to All Slides',
+  'inspector.applyAllTransTitle': 'Apply speed, fallback style, duration, and easing across every slide',
+
+  // Inspector Project Settings Section
+  'settings.behaviorSection': 'Playback & Navigation Behavior',
+  'settings.interruptLabel': 'Click / Space While Transition Plays',
+  'settings.interruptSkip': 'Skip Immediately to Target Slide',
+  'settings.interruptLock': 'Lock Input Until Video Finishes',
+  'settings.interruptFF': 'Fast-Forward to End',
+  'settings.backwardLabel': 'Backward Navigation Behavior',
+  'settings.backwardReverse': 'Play Transition in Reverse',
+  'settings.backwardCrossfade': 'Reverse Crossfade',
+  'settings.backwardInstant': 'Instant Jump',
+  'settings.globalSpeedLabel': 'Global Speed',
+  'settings.loopLabel': 'Loop Presentation Automatically',
+  'settings.displayAudioSection': 'Display & Audio',
+  'settings.aspectRatioLabel': 'Aspect Ratio',
+  'settings.aspect169': '16:9 — Standard Widescreen',
+  'settings.aspect1610': '16:10 — Laptop Displays',
+  'settings.aspect43': '4:3 — Classic Standard',
+  'settings.aspect916': '9:16 — Vertical Portrait',
+  'settings.fitModeLabel': 'Stage Fit Mode',
+  'settings.fitContain': 'Contain (Full Frame)',
+  'settings.fitCover': 'Cover (Fill Stage)',
+  'settings.hudLabel': 'Fullscreen Controls Visibility',
+  'settings.hudMinimal': 'Minimal Bar on Hover',
+  'settings.hudProgress': 'Progress Bar Only',
+  'settings.hudHidden': 'Completely Hidden',
+  'settings.masterVolumeLabel': 'Master Volume',
+  'settings.masterMutedLabel': 'Mute Master Audio',
+  'settings.stageBgLabel': 'Stage Background Color',
+  'settings.preloadLabel': 'Preload Strategy',
+  'settings.preloadAll': 'Preload Entire Deck',
+  'settings.preloadAdjacent': 'Preload Adjacent Slides Only',
+  'settings.autohideCursorLabel': 'Auto-hide Cursor During Playback',
+  'settings.defaultFallbackLabel': 'Default Fallback Transition',
+  'settings.defaultFallbackDurLabel': 'Default Fallback Duration (ms)',
+  'settings.statsSection': 'Presentation Summary & Stats',
+  'settings.statTotalSlides': 'Total Slides',
+  'settings.statVideoTrans': 'Video Transitions',
+  'settings.statCssTrans': 'Software Transitions',
+  'settings.statWithNotes': 'With Speaker Notes',
+  'settings.statEstDuration': 'Estimated Duration',
+  'settings.statMediaSize': 'Media Footprint',
+
+  // Fullscreen Presenter
+  'presenter.prevTitle': 'Previous',
+  'presenter.prevAria': 'Previous Slide',
+  'presenter.nextLabel': 'Next',
+  'presenter.nextTitle': 'Next',
+  'presenter.nextAria': 'Next Slide',
+  'presenter.timerTitle': 'Elapsed presentation time (Click to reset or press T)',
+  'presenter.notesTitle': 'Speaker Notes (S)',
+  'presenter.notesAria': 'Toggle speaker notes',
+  'presenter.gridTitle': 'Slide Grid (G)',
+  'presenter.gridAria': 'Open slide switcher grid',
+  'presenter.exitTitle': 'Exit Presenter (Esc)',
+  'presenter.exitAria': 'Exit fullscreen presenter',
+  'presenter.notesHeader': 'Speaker Notes',
+  'presenter.notesDrawerAria': 'Speaker Notes',
+  'presenter.notesForSlide': 'Notes: {title}',
+  'presenter.notesEmpty': 'No speaker notes recorded for this slide.',
+  'presenter.notesNextSlide': 'Next slide: {title}',
+  'presenter.notesEnd': 'End of Presentation',
+  'presenter.notesFontDec': 'Decrease font size',
+  'presenter.notesFontInc': 'Increase font size',
+  'presenter.closeShortcut': 'Close (S)',
+  'presenter.blackoutLabel': 'Blackout [B]',
+  'presenter.whiteoutLabel': 'Whiteout [W]',
+  'presenter.gridModalAria': 'Quick Slide Switcher',
+  'presenter.gridHeading': 'Jump to Slide',
+  'presenter.close': 'Close',
+
+  // Delete & Choice Modals
+  'delete.multiModalAria': 'Delete Selected Items',
+  'delete.multiModalTitle': 'Delete Selection ({summary})',
+  'delete.multiPrompt':
+    'Multiple items selected. Choose how to handle adjacent transitions for the deleted slides:',
+  'delete.aboveOptionTitle': 'Remove Previous Transition for Each Slide',
+  'delete.aboveOptionDesc':
+    'Deletes the selected slides together with their incoming transition while keeping the outgoing transition.',
+  'delete.belowOptionTitle': 'Remove Next Transition for Each Slide',
+  'delete.belowOptionDesc':
+    'Deletes the selected slides together with their outgoing transition while keeping the incoming transition.',
+  'delete.mergeOptionTitle': 'Auto-Merge Adjacent Clips & Delete Others',
+  'delete.mergeOptionDesc':
+    'Joins contiguous segments from the same video cleanly and removes unrelated transitions.',
+  'delete.singleModalAria': 'Choose Transition to Delete',
+  'delete.singleModalTitle': 'Delete Slide {num}: "{title}"',
+  'delete.singlePrompt': 'Select which transition to delete along with this slide:',
+  'delete.singleAboveTitle': 'Delete Previous Transition',
+  'delete.singleAboveDesc': '{desc} — keeps the outgoing transition bridging slides {from} and {to}.',
+  'delete.singleAboveFirstDesc':
+    'This is the first slide (no incoming transition) — removes this slide and shifts the outgoing transition.',
+  'delete.singleBelowTitle': 'Delete Next Transition',
+  'delete.singleBelowDesc': '{desc} — keeps the incoming transition leading into the next slide.',
+  'delete.singleBelowLastDesc':
+    'This is the last slide — removes this slide and its transition while keeping the incoming transition ({from} {arrow} {to}).',
+  'delete.singleMergeTitle': 'Merge Both Transitions (Previous + Next)',
+  'delete.singleMergeDesc':
+    'Seamlessly joins adjacent segments ({start}s {arrow} {end}s) into a single continuous transition.',
+  'delete.noPrevTransition': 'No incoming transition',
+  'delete.descVideo': 'Transition ({from} {arrow} {to}) · Video {duration}s',
+  'delete.descFallback': 'Transition ({from} {arrow} {to}) · Fallback ({style})',
+  'delete.summaryTransitionSingle': '1 transition',
+  'delete.summaryTransitionsMany': '{count} transitions',
+
+  // Single Video Choice Modal
+  'videoChoice.aria': 'Video Import Mode',
+  'videoChoice.title': 'Import Video into Current Project',
+  'videoChoice.fileLabel': 'File:',
+  'videoChoice.splitAppendTitle': 'Split Video into Slides & Append to Deck',
+  'videoChoice.splitAppendDesc': 'Open Hold Cue Studio to append new slides after the existing ones.',
+  'videoChoice.replaceAllTitle': 'Replace Entire Presentation with This Video',
+  'videoChoice.replaceAllDesc':
+    'Convert this video into a standalone deck and auto-match stage aspect ratio ({ratio}).',
+  'videoChoice.attachTargetTitle': 'Attach as Transition Video for Slide {num}',
+  'videoChoice.attachTargetDesc': 'Use as transition clip after "{title}"',
+
+  // Reel Cue Studio Modal
+  'reel.modalAria': 'Video-to-Slides Hold Cue Studio',
+  'reel.titleEdit': 'Edit Video Hold Cues',
+  'reel.titleNew': 'Video-to-Slides Hold Cue Studio',
+  'reel.audioYes': 'Audio',
+  'reel.audioNo': 'Muted',
+  'reel.modeGroupAria': 'Add Mode',
+  'reel.modeAppend': 'Append to Deck',
+  'reel.modeReplace': 'Start New Deck',
+  'reel.videoDecodeErr': 'Unable to decode this video for preview.',
+  'reel.videoUnsupportedErr': 'Could not play video ({name}). Its codec may not be supported.',
+  'reel.play': 'Play',
+  'reel.pause': 'Pause',
+  'reel.playTitle': 'Play / Pause (Space)',
+  'reel.backHalfTitle': 'Step back 0.5s',
+  'reel.backFrameTitle': 'Previous frame (, or Arrow)',
+  'reel.fwdFrameTitle': 'Next frame (. or Arrow)',
+  'reel.fwdHalfTitle': 'Step forward 0.5s',
+  'reel.muteTitle': 'Mute / Unmute Audio (M)',
+  'reel.undo': 'Undo',
+  'reel.undoTitle': 'Undo (Ctrl+Z)',
+  'reel.redo': 'Redo',
+  'reel.redoTitle': 'Redo (Ctrl+Y)',
+  'reel.zoomOutTitle': 'Zoom out timeline (-)',
+  'reel.zoomFit': 'Fit',
+  'reel.zoomFitTitle': 'Fit timeline to view',
+  'reel.zoomInTitle': 'Zoom in timeline (+)',
+  'reel.shortcutHint': 'Space: Play · Arrows / , . : Frame · C: Add Cue · Ctrl+C/V/D/A · Del: Delete',
+  'reel.timelineAria': 'Hold Cues Timeline',
+  'reel.filmstripLoading': 'Loading timeline thumbnails...',
+  'reel.addCueBtn': 'Add Cue at Playhead (C)',
+  'reel.autoDetectBtn': 'Auto-Detect Hold Cues',
+  'reel.autoDetectTitle': 'Analyze frames to automatically detect static hold plateaus and scene cuts',
+  'reel.sensitivityAria': 'Auto-detect sensitivity',
+  'reel.sensitivityLow': 'Conservative',
+  'reel.sensitivityMedium': 'Balanced',
+  'reel.sensitivityHigh': 'High Sensitivity',
+  'reel.uniformLabel': 'Equal Split:',
+  'reel.cues3': '3 Slides',
+  'reel.cues4': '4 Slides',
+  'reel.cues5': '5 Slides',
+  'reel.cues6': '6 Slides',
+  'reel.cancelDetect': 'Cancel',
+  'reel.slidesHeading': 'Extracted Slides & Hold Cues',
+  'reel.slidesSubtext': 'Click to preview or nudge ±0.05s for frame-accurate alignment',
+  'reel.fitRatioLabel': 'Match Deck Aspect Ratio ({ratio})',
+  'reel.applySave': 'Save & Update Cues ({count})',
+  'reel.applyAppend': 'Append Slides to Deck ({count})',
+  'reel.applyCreate': 'Create Slides & Hold Cues ({count})',
+  'reel.applyingBusy': 'Converting...',
+  'reel.stopExtract': 'Stop Extracting',
+  'reel.cancel': 'Cancel',
+  'reel.nudgeBackTitle': 'Nudge -0.05s earlier',
+  'reel.nudgeFwdTitle': 'Nudge +0.05s later',
+  'reel.delCueTitle': 'Delete hold cue',
+  'reel.easingSelectTitle': 'Segment transition easing',
+  'reel.cueBadgeTitle': 'Cue {num}: {time}s{suffix} (Drag to adjust)',
+  'reel.cueAria': 'Hold cue {num} at {time} seconds',
+  'reel.slideCardAria': 'Slide {num} at {time} seconds',
+  'reel.thumbAlt': 'Hold cue {num} preview',
+  'reel.thumbLoading': 'Loading...',
+  'reel.segEnd': 'End',
+  'reel.kind.pause-settle': 'Settle',
+  'reel.kind.velocity-valley': 'Hold Valley',
+  'reel.kind.scene-cut': 'Scene Cut',
+  'reel.detectBadgeTitle': 'Auto-detection confidence {conf}%',
+  'reel.method.pause-plateaus': 'Motion Plateaus',
+  'reel.method.scene-cuts': 'Scene Cuts',
+  'reel.method.hybrid': 'Hybrid Analysis',
+  'reel.method.uniform-fallback': 'Uniform Split',
+
+  // Reel Status Messages
+  'reel.status.undo': 'Reverted hold cue change',
+  'reel.status.redo': 'Reapplied hold cue change',
+  'reel.status.copied': 'Copied {count} hold cue(s)',
+  'reel.status.pasted': 'Pasted hold cues at {time}s',
+  'reel.status.duplicated': 'Duplicated selected hold cues',
+  'reel.status.minCues': 'Cannot delete hold cues (minimum of 2 cues required)',
+  'reel.status.tooCloseDrag': 'Cannot move closer to adjacent hold cue (minimum 0.08s gap)',
+  'reel.status.tooCloseAdd': 'A hold cue already exists nearby at {time}s (minimum 0.08s gap)',
+  'reel.status.analyzingInit': 'Analyzing video frames for hold plateaus... 0%',
+  'reel.status.analyzingProgress': 'Analyzing video frames for hold plateaus... {pct}%',
+  'reel.status.detected': 'Suggested {count} ({method}) — refine below',
+  'reel.status.detectCancelled': 'Auto-detection cancelled',
+  'reel.status.detectFailed': 'Could not auto-detect hold cues',
+  'reel.status.extractAborted': 'Extraction stopped. You can adjust hold cues and retry.',
+  'reel.status.extractFailed': 'Failed to extract slides from video',
+
+  // Shortcuts Modal
+  'shortcuts.modalAria': 'Keyboard Shortcuts',
+  'shortcuts.title': 'Keyboard Shortcuts',
+  'shortcuts.studioSection': 'Studio & Editing',
+  'shortcuts.undo': 'Undo last change',
+  'shortcuts.redo': 'Redo change',
+  'shortcuts.duplicate': 'Duplicate selected slide',
+  'shortcuts.delete': 'Delete selection',
+  'shortcuts.selectAll': 'Select all slides',
+  'shortcuts.saveOpen': 'Save / Open project',
+  'shortcuts.startPresenter': 'Start fullscreen presenter',
+  'shortcuts.presenterSection': 'Presenter Mode',
+  'shortcuts.next': 'Next slide / Skip',
+  'shortcuts.prev': 'Previous slide',
+  'shortcuts.notes': 'Toggle speaker notes',
+  'shortcuts.resetTimer': 'Reset elapsed timer',
+  'shortcuts.grid': 'Quick slide grid',
+  'shortcuts.blackWhite': 'Blackout / Whiteout screen',
+  'shortcuts.laser': 'Toggle laser pointer',
+  'shortcuts.jumpNum': 'Jump to slide number',
+  'shortcuts.exit': 'Exit presenter',
+  'shortcuts.footerHint': 'Press <kbd class="kbd-badge">Esc</kbd> or click outside to close',
+  'shortcuts.doneBtn': 'Done',
+
+  // Notifications & Errors
+  'notify.undoDone': 'Undid last change',
+  'notify.redoDone': 'Redid change',
+  'notify.slideDuplicated': 'Slide duplicated successfully',
+  'notify.slideDeleted': 'Slide deleted',
+  'notify.slideDeletedAbove': 'Deleted slide {num} and its previous transition',
+  'notify.slideDeletedBelow': 'Deleted slide {num} and its next transition',
+  'notify.slideDeletedMerge': 'Deleted slide {num} and merged adjacent transitions',
+  'notify.batchDeletedTransitionsOnly': 'Deleted {count} video transition(s)',
+  'notify.batchResetTransitions': 'Reset selected transitions',
+  'notify.batchDeletedCombined': 'Deleted {summary}',
+  'notify.openProjectProgress': 'Opening project ({name})...',
+  'notify.openProjectSuccess': 'Opened project: {title}',
+  'notify.openProjectError': 'Failed to open project file',
+  'notify.openSelectedProjectError': 'Failed to open the selected project file',
+  'notify.saveProjectProgress': 'Preparing and saving project (.mpres)...',
+  'notify.saveProjectSuccess': 'Saved project ({name})',
+  'notify.saveProjectSuccessDefault': 'Project (.mpres) saved',
+  'notify.saveProjectError': 'Could not save project file',
+  'notify.importMediaError': 'Failed to import media files',
+  'notify.importFilesError': 'Failed to import selected files',
+  'notify.transRemoved': 'Transition video removed',
+  'notify.rangeInvalid': 'Invalid clip range: start must precede end by at least 0.05s',
+  'notify.stageTimeOutOfRange': 'Stage playhead is outside this segment range',
+  'notify.splitFailed': 'Failed to split transition segment',
+  'notify.extractFailed': 'Failed to extract frame from video',
+  'notify.appliedToAll': 'Applied transition settings to {count} slides',
+  'notify.slideImageUpdated': 'Updated slide image ({name})',
+  'notify.slideAdded': 'Added slide ({name})',
+  'notify.imageInvalid': 'Invalid image file',
+  'notify.analyzingVideo': 'Analyzing video ({name})...',
+  'notify.transVideoLinked': 'Linked transition video ({name} · {dur}s)',
+  'notify.videoUnsupported': 'Unsupported video format',
+  'notify.batchScanning': 'Scanning and pairing {count} files...',
+  'notify.batchProgress': 'Processing ({done}/{total}): {name}',
+  'notify.batchImportedPartial': 'Imported {slides}; skipped {rejected} unsupported file(s).',
+  'notify.batchNothingValid': 'No valid media assets found to import',
+  'notify.batchImportedSuccess': 'Imported {slides} and linked {matched} motion transition(s)',
+  'notify.demoReady': 'Demo deck ready (4 slides with live motion transition videos)',
+  'notify.demoFailed': 'Failed to generate demo deck',
+  'notify.pickValidVideo': 'Please choose a valid video file (MP4, WebM, MOV)',
+  'notify.pickVideoFailed': 'Failed to select video file',
+  'notify.relinkFailed': 'Failed to relink video file',
+  'notify.relinkCannot': 'Could not relink video file',
+  'notify.relinkingVideo': 'Relinking video ({name})...',
+  'notify.restoringFrames': 'Restoring slide thumbnails ({done}/{total})...',
+  'notify.relinkUpdatedSlides': 'Relinked video and refreshed {count}',
+  'notify.videoAttachedAfterSlide': 'Linked transition video after slide {num}',
+  'notify.reelCreated': 'Created presentation slides and hold cues from video',
+  'notify.videoLinkedSuccess': 'Linked video ({name}) successfully',
+  'notify.invalidSliceTimes': 'Invalid segment timestamps',
+  'notify.minSliceDelta': 'Clip end must be at least 0.05s after start',
+  'notify.noTransVideoToSplit': 'No transition video is linked to this slide to split',
+  'notify.clipTooShortToSplit': 'Clip is too short to split into two stages (minimum 0.20s)',
+  'notify.splitTimeOutOfBounds': 'Split timestamp must fall between {min}s and {max}s',
+  'notify.splitSuccess': 'Split segment cleanly at {time}s',
+  'notify.splitExtractFailed': 'Failed to extract hold frame while splitting',
+  'notify.needNextSlideToGenerate': 'Add a following slide first to synthesize a transition video',
+  'notify.generatedTransSuccess': 'Generated and linked motion transition video',
+  'notify.noTransVideoToExtract': 'No transition video is linked to this slide for frame extraction.',
+  'notify.extractedEndSuccess': 'Extracted end frame and inserted it as the next slide',
+  'notify.languageSwitched': 'Switched interface language to English',
+  'notify.themeSwitched': 'Theme switched to: {theme}',
+
+  // Swatches, Dock, Command Palette & Context Menu
+  'settings.stageSwatchesLabel': 'Curated Stage Presets',
+  'swatch.obsidian': 'Obsidian',
+  'swatch.carbon': 'Carbon',
+  'swatch.midnight': 'Midnight',
+  'swatch.graphite': 'Graphite',
+  'swatch.indigo': 'Deep Indigo',
+  'swatch.emerald': 'Deep Emerald',
+  'swatch.paper': 'Warm Paper',
+  'swatch.daylight': 'Pure White',
+  'dock.title': 'Sequence & Motion Timeline',
+  'dock.toggleTitle': 'Collapse or expand bottom sequence dock',
+  'dock.openCuesBtn': 'Hold Cue Studio',
+  'dock.totalDuration': 'Total Duration',
+  'dock.slidesCount': 'Slides',
+  'cmd.placeholder': 'Type a command or search actions...',
+  'cmd.empty': 'No matching studio commands found.',
+  'cmd.groupFile': 'Project & Media',
+  'cmd.groupEdit': 'Edit & Arrange',
+  'cmd.groupView': 'View & Appearance',
+  'cmd.groupPresent': 'Presentation',
+  'cmd.toggleTheme': 'Switch Theme (Dark / Light / Auto)',
+  'cmd.toggleLang': 'Switch Language (English / Arabic)',
+  'cmd.toggleTimelineDock': 'Show or Hide Bottom Sequence Dock',
+  'ctx.moveUp': 'Move Slide Up',
+  'ctx.moveDown': 'Move Slide Down',
+  'ctx.duplicate': 'Duplicate Slide',
+  'ctx.editTransition': 'Edit Next Transition',
+  'ctx.replaceImage': 'Replace Slide Image',
+  'ctx.openCueStudio': 'Open Video Hold Cues',
+  'ctx.delete': 'Delete Slide',
+
+  // Core Engine, Services & Errors
+  'core.cancelled': 'Operation cancelled',
+  'core.extractSlidesCancelled': 'Slide extraction cancelled',
+  'core.relinkCancelled': 'Video relinking cancelled',
+  'core.extractFramesCancelled': 'Frame extraction cancelled',
+  'core.filmstripCancelled': 'Filmstrip thumbnail generation cancelled',
+  'core.canvas2dInitFailed': 'Could not initialize Canvas 2D rendering context',
+  'core.unknown': 'unknown',
+  'core.videoUrlMissing': 'Video source URL unavailable for extraction ({name})',
+  'core.videoReadExtractFailed': 'Failed to read video for frame extraction: {name}',
+  'core.videoNoVisualTrackExtract': 'Video ({name}) does not contain a valid visual track.',
+  'core.videoNoDurationExtract': 'Unable to determine duration of video ({name}).',
+  'core.extractCtxFailed': 'Failed to create canvas context for slide extraction',
+  'core.frameNotReady': 'Target frame at {time}s is not ready to render.',
+  'core.analyzeCtxFailed': 'Failed to create canvas context for frame analysis',
+  'core.decoderClosedAlready': 'Video decoder session is already closed',
+  'core.decoderClosed': 'Video decoder session closed',
+  'core.decodeFrameFailed': 'Failed to decode frame at {time}s from video ({name})',
+  'core.pngEncodeTimeout': 'Timed out while encoding extracted slide PNG',
+  'core.frameToImageFailed': 'Failed to encode extracted frame as an image',
+  'core.unsupportedExt': 'File extension (.{ext}) is unsupported.',
+  'core.expectedKindImage': 'static slide image (PNG/JPG/WEBP)',
+  'core.expectedKindVideo': 'motion transition video (MP4/WEBM/MOV)',
+  'core.actualKindImage': 'an image',
+  'core.actualKindVideo': 'a video',
+  'core.kindMismatch': 'This slot expects a {expected}, but the uploaded file is {actual} ({name}).',
+  'core.emptyFile': 'File ({name}) is empty or corrupted (0 bytes).',
+  'core.importCancelled': 'File import cancelled',
+  'core.invalidFile': 'Invalid file',
+  'core.videoLoadCancelled': 'Video loading cancelled',
+  'core.videoDecodeHint': 'Failed to decode video ({name}). Ensure it uses valid MP4 (H.264) or WebM encoding.',
+  'core.videoNoVisualTrack': 'File ({name}) has no valid visual video stream (or codec is unsupported).',
+  'core.videoMetadataTimeout': 'Timed out reading video metadata: {name}',
+  'core.videoDurationCancelled': 'Reading video duration cancelled',
+  'core.videoSeekCancelled': 'Video seek cancelled',
+  'core.videoSeekFailed': 'Failed to seek to timestamp {time}s in video',
+  'core.videoSeekTimeout': 'Timed out seeking to timestamp {time}s in video',
+  'core.videoSetPosFailed': 'Could not position video at {time}s',
+  'core.imageImportCancelled': 'Image import cancelled',
+  'core.imageReadTimeout': 'Timed out reading image file: {name}',
+  'core.imageCorrupted': 'Image file ({name}) is corrupted or has invalid dimensions.',
+  'core.imageReadFailed': 'Could not read image file: {name}',
+  'core.videoAnalyzeCancelled': 'Video analysis cancelled',
+  'core.videoDurationUnknown': 'Could not determine duration of video ({name}). File may be damaged.',
+  'core.videoAnalyzeError': 'Error analyzing video: {name}',
+  'core.projectMissingManifest': 'Project file (.mpres) is damaged or missing manifest.json.',
+  'core.projectInvalidFile': 'Project file is invalid or damaged.',
+  'core.fileReadError': 'Error reading file',
+  'core.videoFramesExtractError': 'Could not extract frames from video ({name})',
+  'core.videoProcessError': 'Could not process video ({name})',
+  'core.motionAnalyzeCtxFailed': 'Could not create canvas context for motion analysis',
+  'core.demoProgressSlides': 'Rendering static demo slides...',
+  'core.demoProgressVideo': 'Rendering motion transition video ({from} {arrow} {to})...',
+  'core.demoRecordError': 'Error recording demo motion video',
+  'core.demoLoadSlideImgError': 'Failed to load slide image for transition generation',
+  'core.transRecordError': 'Error recording motion transition video',
+};
+
+let currentLanguage: AppLanguage = 'ar';
+let initialized = false;
+
+function getStorageSafe(): Storage | null {
+  try {
+    if (typeof window !== 'undefined' && (window as any).localStorage) {
+      return (window as any).localStorage as Storage;
+    }
+    if (typeof globalThis !== 'undefined' && (globalThis as any).localStorage) {
+      return (globalThis as any).localStorage as Storage;
+    }
+  } catch {
+    // Storage access blocked
+  }
+  return null;
+}
+
+export function normalizeLocaleToLanguage(locale: string | undefined | null): AppLanguage {
+  if (!locale || typeof locale !== 'string') return 'ar';
+  return locale.trim().toLowerCase().startsWith('ar') ? 'ar' : 'en';
+}
+
+export function getSavedLanguagePreference(): AppLanguage | null {
+  try {
+    const saved = getStorageSafe()?.getItem(LANGUAGE_STORAGE_KEY);
+    if (saved === 'ar' || saved === 'en') {
+      return saved;
+    }
+  } catch {
+    // Ignore storage errors
+  }
+  return null;
+}
+
+export function hasSavedLanguagePreference(): boolean {
+  return getSavedLanguagePreference() !== null;
+}
+
+export function detectSystemLanguage(): AppLanguage | null {
+  try {
+    const winNav =
+      typeof window !== 'undefined' ? ((window as any).navigator as { language?: string; languages?: string[] } | undefined) : undefined;
+    const rawLocale = winNav?.languages?.[0] || winNav?.language;
+    if (rawLocale && typeof rawLocale === 'string') {
+      return normalizeLocaleToLanguage(rawLocale);
+    }
+  } catch {
+    // Ignore navigator access issues
+  }
+  return null;
+}
+
+export function applyDocumentLanguage(lang: AppLanguage): void {
+  try {
+    const doc = typeof document !== 'undefined' ? (document as any) : undefined;
+    const html = doc?.documentElement;
+    if (html) {
+      if (typeof html.setAttribute === 'function') {
+        html.setAttribute('lang', lang);
+        html.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+      } else {
+        html.lang = lang;
+        html.dir = lang === 'ar' ? 'rtl' : 'ltr';
+      }
+      if ('dataset' in html && html.dataset) {
+        html.dataset.lang = lang;
+      }
+    }
+    if (doc?.body?.setAttribute) {
+      doc.body.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+    }
+  } catch {
+    // Ignore mock DOM limitations
+  }
+}
+
+export function detectInitialLanguage(): AppLanguage {
+  const saved = getSavedLanguagePreference();
+  const resolved = saved ?? detectSystemLanguage() ?? 'ar';
+  currentLanguage = resolved;
+  initialized = true;
+  applyDocumentLanguage(resolved);
+  return resolved;
+}
+
+export function getLanguage(): AppLanguage {
+  if (!initialized) {
+    return detectInitialLanguage();
+  }
+  return currentLanguage;
+}
+
+export function isRtlLanguage(lang: AppLanguage = getLanguage()): boolean {
+  return lang === 'ar';
+}
+
+export function getFlowArrow(lang: AppLanguage = getLanguage()): string {
+  return lang === 'ar' ? '←' : '→';
+}
+
+export function setLanguage(
+  lang: AppLanguage,
+  options: { persist?: boolean; syncDesktop?: boolean } = {}
+): void {
+  const { persist = true, syncDesktop = true } = options;
+  currentLanguage = lang;
+  initialized = true;
+  applyDocumentLanguage(lang);
+
+  if (persist) {
+    try {
+      getStorageSafe()?.setItem(LANGUAGE_STORAGE_KEY, lang);
+    } catch {
+      // Ignore persistence error
+    }
+  }
+
+  if (syncDesktop) {
+    try {
+      const api = typeof window !== 'undefined' ? (window as any).desktopAPI : undefined;
+      if (api && typeof api.setLanguage === 'function') {
+        void Promise.resolve(api.setLanguage(lang)).catch(() => {});
+      }
+    } catch {
+      // Ignore Electron bridge error
+    }
+  }
+}
+
+export function resetI18nStateForTesting(): void {
+  initialized = false;
+  currentLanguage = 'ar';
+}
+
+export function t(
+  key: TranslationKey,
+  params?: Record<string, string | number>,
+  langOverride?: AppLanguage
+): string {
+  const lang = langOverride ?? getLanguage();
+  const dict = lang === 'en' ? EN_STRINGS : AR_STRINGS;
+  const raw = dict[key] ?? AR_STRINGS[key] ?? key;
+
+  const arrow = getFlowArrow(lang);
+  let formatted = raw.includes('{arrow}') ? raw.replace(/\{arrow\}/g, arrow) : raw;
+
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      formatted = formatted.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
+    }
+  }
+
+  return formatted;
+}
+
+export function formatSlideCount(count: number, lang: AppLanguage = getLanguage()): string {
+  if (lang === 'en') {
+    return count === 1 ? '1 slide' : `${count} slides`;
+  }
+  if (count === 1) return 'شريحة واحدة';
+  if (count === 2) return 'شريحتان';
+  if (count >= 3 && count <= 10) return `${count} شرائح`;
+  return `${count} شريحة`;
+}
+
+export function formatSummaryParts(parts: string[], lang: AppLanguage = getLanguage()): string {
+  if (parts.length === 0) return '';
+  if (parts.length === 1) return parts[0];
+  return lang === 'ar' ? parts.join(' و ') : parts.join(' & ');
+}

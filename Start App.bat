@@ -17,5 +17,5 @@ if errorlevel 1 (
     exit /b 1
 )
 echo Starting Desktop Window...
-call npx electron .
+call npx electron . %*
 

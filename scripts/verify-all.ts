@@ -1,8 +1,31 @@
 import assert from 'node:assert/strict';
-import { SmartPairer } from '../src/core/services/SmartPairer';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+
+// Process safety: Ensure any unhandled promise rejections or uncaught exceptions
+// immediately crash the verification runner with exit code 1, preventing error swallowing.
+process.on('unhandledRejection', (reason) => {
+  console.error('\nFATAL: Unhandled Promise Rejection in verify-all:', reason);
+  process.exit(1);
+});
+process.on('uncaughtException', (err) => {
+  console.error('\nFATAL: Uncaught Exception in verify-all:', err);
+  process.exit(1);
+});
+
+import { SmartPairer, extractFrameSignature, compareFrameSignatures } from '../src/core/services/SmartPairer';
+import { MediaValidator } from '../src/core/services/MediaValidator';
 import { ProjectSerializer } from '../src/core/services/ProjectSerializer';
-import { createDefaultSettings, createSlideNode, createEmptyProject } from '../src/core/domain/defaults';
+import {
+  createDefaultSettings,
+  createDefaultTransition,
+  createSlideNode,
+  createEmptyProject,
+  inferAspectRatioFromDimensions,
+} from '../src/core/domain/defaults';
+import { MediaAsset, SlideNode } from '../src/core/domain/types';
 import { PresentationStore } from '../src/core/state/PresentationStore';
+import { StagePlaybackEngine } from '../src/core/engine/StagePlaybackEngine';
 
 console.log('--- RUNNING DEEP VERIFICATION SUITE ---');
 
@@ -625,6 +648,996 @@ console.log('[Test 16] SmartPairer.normalizeCuePoints for Motion-Reel Workflow')
   console.log('✓ SmartPairer.normalizeCuePoints for Motion-Reel Workflow passed');
 }
 
-console.log('\n=======================================');
-console.log('ALL VERIFICATION TESTS PASSED (16/16)!');
-console.log('=======================================');
+function makeMockAsset(
+  id: string,
+  kind: 'image' | 'video',
+  name: string,
+  opts: Partial<MediaAsset> = {}
+): MediaAsset {
+  return {
+    id,
+    name,
+    kind,
+    mimeType: kind === 'video' ? 'video/mp4' : 'image/png',
+    extension: name.split('.').pop()?.toLowerCase() || (kind === 'video' ? 'mp4' : 'png'),
+    objectUrl: `blob:http://localhost/${id}`,
+    fileSize: 4096,
+    width: 1920,
+    height: 1080,
+    durationSec: kind === 'video' ? 10 : 0,
+    ...opts,
+  };
+}
+
+// 17. Extended SmartPairer Token Filtering & MediaValidator Pure Helpers
+console.log('[Test 17] SmartPairer Extended Tokens & MediaValidator Pure Helpers');
+{
+  assert.deepEqual(SmartPairer.parseIndicesFromFilename('01_to_02_1920x1080.mp4'), {
+    fromIndex: 0,
+    toIndex: 1,
+  });
+  assert.equal(SmartPairer.parseIndicesFromFilename('demo_4k_60fps_1080p.mp4'), null);
+  assert.equal(SmartPairer.parseIndicesFromFilename('capture_2560x1440.webm'), null);
+
+  assert.equal(MediaValidator.inferAspectRatio(1920, 1080), '16:9');
+  assert.equal(MediaValidator.inferAspectRatio(1080, 1920), '9:16');
+  assert.equal(MediaValidator.inferAspectRatio(1600, 1200), '4:3');
+  assert.equal(MediaValidator.inferAspectRatio(1920, 1200), '16:10');
+  assert.equal(inferAspectRatioFromDimensions(720, 1280), '9:16');
+
+  const bounded = MediaValidator.computeBoundedSize(3840, 2160, 320);
+  assert.deepEqual(bounded, { width: 320, height: 180 });
+
+  const mkvFile = new File(['mkv'], 'clip.mkv', { type: '' });
+  assert.equal(MediaValidator.resolveMimeType(mkvFile, 'video', 'mkv'), 'video/x-matroska');
+  assert.equal(MediaValidator.validateFile(mkvFile, 'video').valid, true);
+  assert.equal(MediaValidator.validateFile(mkvFile, 'image').valid, false);
+
+  const emptyMp4 = new File([], 'empty.mp4', { type: 'video/mp4' });
+  assert.equal(MediaValidator.validateFile(emptyMp4, 'video').valid, false);
+
+  const badExt = new File(['text'], 'notes.txt', { type: 'text/plain' });
+  assert.equal(MediaValidator.validateFile(badExt).valid, false);
+
+  console.log('✓ Extended tokens & MediaValidator pure helpers passed');
+}
+
+// 18. MediaValidator AbortError Factory & Type Guard
+console.log('[Test 18] MediaValidator AbortError Consistency');
+{
+  const created = MediaValidator.createAbortError('تم الإلغاء');
+  assert.equal(created.name, 'AbortError');
+  assert.equal(MediaValidator.isAbortError(created), true);
+
+  const nativeDomAbort = new DOMException('aborted', 'AbortError');
+  assert.equal(MediaValidator.isAbortError(nativeDomAbort), true);
+
+  const plainNamedAbort = new Error('cancelled');
+  plainNamedAbort.name = 'AbortError';
+  assert.equal(MediaValidator.isAbortError(plainNamedAbort), true);
+
+  assert.equal(MediaValidator.isAbortError(new Error('ordinary error')), false);
+  assert.equal(MediaValidator.isAbortError(null), false);
+
+  const ctrl = new AbortController();
+  ctrl.abort();
+  assert.throws(
+    () => MediaValidator.throwIfAborted(ctrl.signal, 'abort-test'),
+    (err) => MediaValidator.isAbortError(err)
+  );
+
+  console.log('✓ MediaValidator AbortError consistency passed');
+}
+
+// 19. SmartPairer.extractCuePointsFromSlides Roundtrip Reconstruction
+console.log('[Test 19] SmartPairer.extractCuePointsFromSlides');
+{
+  const vid = makeMockAsset('vid_reel_1', 'video', 'reel.mp4', { durationSec: 9.0 });
+  const slides: SlideNode[] = [
+    createSlideNode(
+      makeMockAsset('img_1', 'image', 'f1.png', { sourceVideoId: vid.id, sourceTimeSec: 0 }),
+      0,
+      'crossfade',
+      0
+    ),
+    createSlideNode(
+      makeMockAsset('img_2', 'image', 'f2.png', { sourceVideoId: vid.id, sourceTimeSec: 2.5 }),
+      1,
+      'crossfade',
+      0
+    ),
+    createSlideNode(
+      makeMockAsset('img_3', 'image', 'f3.png', { sourceVideoId: vid.id, sourceTimeSec: 5.25 }),
+      2,
+      'crossfade',
+      0
+    ),
+    createSlideNode(
+      makeMockAsset('img_4', 'image', 'f4.png', { sourceVideoId: vid.id, sourceTimeSec: 9.0 }),
+      3,
+      'cut',
+      0
+    ),
+  ];
+
+  slides[0].transitionToNext = {
+    ...createDefaultTransition('crossfade', vid, 0),
+    startTimeSec: 0,
+    endTimeSec: 2.5,
+  };
+  slides[1].transitionToNext = {
+    ...createDefaultTransition('crossfade', vid, 0),
+    startTimeSec: 2.5,
+    endTimeSec: 5.25,
+  };
+  slides[2].transitionToNext = {
+    ...createDefaultTransition('crossfade', vid, 0),
+    startTimeSec: 5.25,
+    endTimeSec: 9.0,
+  };
+
+  assert.deepEqual(SmartPairer.extractCuePointsFromSlides(slides), [0, 2.5, 5.25, 9]);
+  assert.deepEqual(SmartPairer.extractCuePointsFromSlides(slides, 'missing_vid'), []);
+  assert.deepEqual(SmartPairer.extractCuePointsFromSlides([]), []);
+
+  console.log('✓ SmartPairer.extractCuePointsFromSlides passed');
+}
+
+// 20. PresentationStore Cue Range Editing, Validation & Reverse Cache Invalidation
+console.log('[Test 20] PresentationStore Cue Range Updates & Reverse Cache Invalidation');
+{
+  StagePlaybackEngine.clearGlobalReverseFrameCache();
+  const store = new PresentationStore();
+  const vid = makeMockAsset('vid_range', 'video', 'range.mp4', { durationSec: 12.0 });
+  const s1 = createSlideNode(makeMockAsset('i1', 'image', 'i1.png'), 0);
+  const s2 = createSlideNode(makeMockAsset('i2', 'image', 'i2.png'), 1);
+  s1.transitionToNext = {
+    ...createDefaultTransition('crossfade', vid, 0),
+    startTimeSec: 1.0,
+    endTimeSec: 4.0,
+  };
+  store.addSlideFromImage(s1.imageAsset);
+  store.addSlideFromImage(s2.imageAsset);
+  const loadedSlides = store.getSlides();
+  loadedSlides[0].transitionToNext = s1.transitionToNext;
+
+  const trId = loadedSlides[0].transitionToNext.id;
+  StagePlaybackEngine.cacheReverseFrames(trId, [{ width: 320, height: 180 }] as any);
+
+  // Invalid ranges rejected without wiping cache
+  assert.equal(store.updateTransitionRange(loadedSlides[0].id, 3.0, 3.02), false);
+  assert.equal(store.updateTransitionRange(loadedSlides[0].id, Number.NaN, 5), false);
+  assert.ok(StagePlaybackEngine.getReverseFrames(trId), 'Rejected edit must keep reverse cache');
+
+  // Metadata-only update preserves reverse cache
+  store.updateTransitionSpec(loadedSlides[0].id, { muted: true });
+  assert.ok(StagePlaybackEngine.getReverseFrames(trId), 'Muted-only change must keep reverse cache');
+
+  // Clamped valid range update clears reverse cache
+  assert.equal(store.updateTransitionRange(loadedSlides[0].id, -2.0, 25.0), true);
+  assert.equal(loadedSlides[0].transitionToNext.startTimeSec, 0);
+  assert.equal(loadedSlides[0].transitionToNext.endTimeSec, 12);
+  assert.equal(StagePlaybackEngine.getReverseFrames(trId), undefined);
+
+  console.log('✓ PresentationStore cue range updates & invalidation passed');
+}
+
+// 21. PresentationStore deleteSlide Cue Bridging & Reference-Checked URL Revocation
+console.log('[Test 21] PresentationStore deleteSlide Cue Bridging & Safe Blob Revocation');
+{
+  StagePlaybackEngine.clearGlobalReverseFrameCache();
+  const revokedUrls: string[] = [];
+  const origRevoke = URL.revokeObjectURL;
+  (URL as any).revokeObjectURL = (url: string) => {
+    revokedUrls.push(url);
+  };
+
+  try {
+    const vidUrl = 'blob:http://localhost/shared-reel-video';
+    const vid = makeMockAsset('vid_bridge', 'video', 'bridge.mp4', {
+      durationSec: 9.0,
+      objectUrl: vidUrl,
+    });
+
+    const slides: SlideNode[] = [0, 1, 2, 3].map((idx) =>
+      createSlideNode(
+        makeMockAsset(`img_b_${idx}`, 'image', `b_${idx}.png`, {
+          objectUrl: `blob:http://localhost/img_b_${idx}`,
+          sourceVideoId: vid.id,
+          sourceTimeSec: idx * 3,
+        }),
+        idx,
+        'crossfade',
+        0
+      )
+    );
+    slides[0].transitionToNext = {
+      ...createDefaultTransition('crossfade', vid, 0),
+      startTimeSec: 0,
+      endTimeSec: 3,
+    };
+    slides[1].transitionToNext = {
+      ...createDefaultTransition('crossfade', vid, 0),
+      startTimeSec: 3,
+      endTimeSec: 6,
+    };
+    slides[2].transitionToNext = {
+      ...createDefaultTransition('crossfade', vid, 0),
+      startTimeSec: 6,
+      endTimeSec: 9,
+    };
+
+    const store = new PresentationStore(createEmptyProject());
+    store.loadProjectFromManifest({
+      title: 'اختبار دمج النقاط',
+      slides,
+      reelMetadata: {
+        sourceVideoId: vid.id,
+        sourceVideoName: vid.name,
+        durationSec: 9,
+        cueTimesSec: [0, 3, 6, 9],
+      },
+    });
+
+    StagePlaybackEngine.cacheReverseFrames(slides[0].transitionToNext.id, [{}] as any);
+    StagePlaybackEngine.cacheReverseFrames(slides[1].transitionToNext.id, [{}] as any);
+    StagePlaybackEngine.cacheReverseFrames(slides[2].transitionToNext.id, [{}] as any);
+
+    // Delete middle slide (index 1, cue 3.0s): slide 0 must bridge 0->6s, shared vidUrl stays alive!
+    store.deleteSlide(slides[1].id);
+    const remaining = store.getSlides();
+    assert.equal(remaining.length, 3);
+    assert.equal(remaining[0].transitionToNext.startTimeSec, 0);
+    assert.equal(remaining[0].transitionToNext.endTimeSec, 6);
+    assert.equal(
+      StagePlaybackEngine.getReverseFrames(remaining[0].transitionToNext.id),
+      undefined,
+      'Bridged previous segment reverse cache must invalidate'
+    );
+    assert.ok(
+      StagePlaybackEngine.getReverseFrames(remaining[1].transitionToNext.id),
+      'Unrelated sibling segment reverse cache must remain intact'
+    );
+    assert.ok(revokedUrls.includes('blob:http://localhost/img_b_1'));
+    assert.equal(
+      revokedUrls.includes(vidUrl),
+      false,
+      'Shared reel blob URL must NOT be revoked while other slides reference it'
+    );
+
+    // Clear remaining slides -> shared video blob URL must now be revoked cleanly
+    store.clearAllSlides();
+    assert.ok(revokedUrls.includes(vidUrl), 'Shared reel blob URL must be revoked once unreferenced');
+  } finally {
+    (URL as any).revokeObjectURL = origRevoke;
+  }
+
+  console.log('✓ PresentationStore deleteSlide cue bridging & ref-checked revocation passed');
+}
+
+// 22. Missing Video Detection & getReelContextForSlide Accuracy (Sliced Reel vs Standalone Transition)
+console.log('[Test 22] getMissingVideoAssets & getReelContextForSlide');
+{
+  const manifestJson = JSON.stringify({
+    version: '1.1.0',
+    projectId: 'proj_reel_ctx',
+    title: 'عرض مقسم ومفقود الفيديو',
+    reelMetadata: {
+      sourceVideoId: 'vid_orig',
+      sourceVideoName: 'master_reel.mp4',
+      durationSec: 9,
+      cueTimesSec: [0, 3, 6, 9],
+    },
+    slides: [0, 1, 2, 3].map((idx) => ({
+      index: idx + 1,
+      title: `توقف ${idx + 1}`,
+      imageFileName: `stop_${idx + 1}.png`,
+      imageResolution: '1080x1920',
+      sourceVideoId: 'vid_orig',
+      sourceTimeSec: idx * 3,
+      transitionToNext:
+        idx < 3
+          ? {
+              hasCustomVideo: true,
+              videoFileName: 'master_reel.mp4',
+              videoDurationSec: 9,
+              startTimeSec: idx * 3,
+              endTimeSec: (idx + 1) * 3,
+              fallbackStyle: 'crossfade',
+              fallbackDurationMs: 0,
+            }
+          : { hasCustomVideo: false, fallbackStyle: 'cut', fallbackDurationMs: 0 },
+    })),
+  });
+
+  const store = new PresentationStore();
+  store.loadProjectFromManifest(ProjectSerializer.deserializeProject(manifestJson));
+
+  const missing = store.getMissingVideoAssets();
+  assert.equal(missing.length, 1);
+  assert.equal(missing[0].videoFileName, 'master_reel.mp4');
+  assert.equal(missing[0].slideIds.length, 3);
+  assert.equal(store.getSlides()[0].imageAsset.width, 1080);
+  assert.equal(store.getSlides()[0].imageAsset.height, 1920);
+  assert.equal(store.getSlides()[0].transitionToNext.fallbackDurationMs, 0);
+
+  // Relink without DOM re-extraction
+  const relinkVid = makeMockAsset('vid_relinked', 'video', 'master_reel.mp4', { durationSec: 9 });
+  const updatedCount = await store.relinkReelVideo(missing[0].slideIds, relinkVid, {
+    reextractMissingImages: false,
+  });
+  assert.equal(updatedCount, 3);
+  assert.equal(store.getMissingVideoAssets().length, 0);
+
+  const ctx = store.getReelContextForSlide(store.getSlides()[3].id);
+  assert.ok(ctx !== null, 'Landing slide of sliced reel should resolve ReelContext');
+  assert.deepEqual(ctx.cuePointsSec, [0, 3, 6, 9]);
+  assert.equal(ctx.slideIds.length, 4);
+
+  // Regression: 2 custom slides connected by ONE standalone non-sliced video must NOT return ReelContext
+  const standaloneStore = new PresentationStore();
+  const sA = standaloneStore.addSlideFromImage(makeMockAsset('sa_img', 'image', 'a.png'));
+  standaloneStore.addSlideFromImage(makeMockAsset('sb_img', 'image', 'b.png'));
+  standaloneStore.setSlideTransitionVideo(
+    sA.id,
+    makeMockAsset('vid_standalone', 'video', 'bridge.mp4', { durationSec: 2.2 })
+  );
+  assert.equal(
+    standaloneStore.getReelContextForSlide(sA.id),
+    null,
+    'Single standalone transition video must not falsely trigger sliced-reel banner'
+  );
+  assert.equal(standaloneStore.getReelContextForSlide(), null);
+
+  console.log('✓ getMissingVideoAssets & getReelContextForSlide passed');
+}
+
+// 23. ProjectSerializer v1.1.0 Roundtrip Preserving ReelMetadata, DataUrl, & Zero Fallback
+console.log('[Test 23] ProjectSerializer v1.1.0 Roundtrip');
+{
+  const vid = makeMockAsset('vid_ser', 'video', 'showcase.mp4', { durationSec: 6.5 });
+  const imgData = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  const s1 = createSlideNode(
+    makeMockAsset('img_s1', 'image', 's1.png', {
+      objectUrl: imgData,
+      thumbnailUrl: imgData,
+      width: 1080,
+      height: 1920,
+      sourceVideoId: vid.id,
+      sourceTimeSec: 0,
+    }),
+    0,
+    'cut',
+    0
+  );
+  s1.title = 'بداية العرض العربي';
+  s1.transitionToNext = {
+    ...createDefaultTransition('cut', vid, 0),
+    startTimeSec: 0,
+    endTimeSec: 6.5,
+  };
+  const s2 = createSlideNode(
+    makeMockAsset('img_s2', 'image', 's2.png', {
+      objectUrl: imgData,
+      width: 1080,
+      height: 1920,
+      sourceVideoId: vid.id,
+      sourceTimeSec: 6.5,
+    }),
+    1,
+    'cut',
+    0
+  );
+
+  const project = createEmptyProject();
+  project.id = 'proj_v11';
+  project.title = 'عرض موشن متكامل';
+  project.settings = { ...createDefaultSettings(), aspectRatio: '9:16' };
+  project.reelMetadata = {
+    sourceVideoId: vid.id,
+    sourceVideoName: vid.name,
+    durationSec: 6.5,
+    cueTimesSec: [0, 6.5],
+  };
+  project.slides = [s1, s2];
+
+  const manifest = ProjectSerializer.buildManifestObject(project);
+  assert.equal(manifest.version, '1.1.0');
+  const parsed = ProjectSerializer.deserializeProject(JSON.stringify(manifest));
+
+  const targetStore = new PresentationStore();
+  targetStore.loadProjectFromManifest(parsed);
+  const restored = targetStore.getProject();
+
+  assert.equal(restored.title, 'عرض موشن متكامل');
+  assert.equal(restored.settings.aspectRatio, '9:16');
+  assert.deepEqual(restored.reelMetadata?.cueTimesSec, [0, 6.5]);
+  assert.equal(restored.slides[0].imageAsset.objectUrl, imgData);
+  assert.equal(restored.slides[0].imageAsset.sourceTimeSec, 0);
+  assert.equal(restored.slides[1].imageAsset.sourceTimeSec, 6.5);
+  assert.equal(restored.slides[0].transitionToNext.fallbackDurationMs, 0);
+  assert.equal(restored.slides[0].transitionToNext.expectedVideoFileName, 'showcase.mp4');
+
+  console.log('✓ ProjectSerializer v1.1.0 roundtrip passed');
+}
+
+// 24. StagePlaybackEngine Segment Reverse Cache Isolation & Disposal
+console.log('[Test 24] StagePlaybackEngine Segment Cache Isolation & Bitmap Disposal');
+{
+  StagePlaybackEngine.clearGlobalReverseFrameCache();
+  let closedA1 = false;
+  let closedA2 = false;
+  let closedB = false;
+
+  const framesA1 = [{ close: () => { closedA1 = true; } }] as any;
+  const framesA2 = [{ close: () => { closedA2 = true; } }] as any;
+  const framesB = [{ close: () => { closedB = true; } }] as any;
+
+  StagePlaybackEngine.cacheReverseFrames('tr_seg_1', framesA1);
+  StagePlaybackEngine.cacheReverseFrames('tr_seg_2', framesB);
+
+  // Overwrite tr_seg_1 -> old array closed, tr_seg_2 untouched
+  StagePlaybackEngine.cacheReverseFrames('tr_seg_1', framesA2);
+  assert.equal(closedA1, true, 'Overwritten frame array should be disposed');
+  assert.equal(closedB, false);
+
+  // Invalidate only tr_seg_1 -> tr_seg_2 remains cached
+  StagePlaybackEngine.invalidateReverseFrames(['tr_seg_1']);
+  assert.equal(closedA2, true);
+  assert.equal(StagePlaybackEngine.getReverseFrames('tr_seg_1'), undefined);
+  assert.equal(StagePlaybackEngine.getReverseFrames('tr_seg_2'), framesB);
+  assert.equal(closedB, false);
+
+  StagePlaybackEngine.clearGlobalReverseFrameCache();
+  assert.equal(closedB, true);
+  assert.equal(StagePlaybackEngine.getReverseFrames('tr_seg_2'), undefined);
+
+  console.log('✓ StagePlaybackEngine segment reverse cache isolation & disposal passed');
+}
+
+// 25. PresentationStore Cue Workflow Cancellation Signals AbortError Properly
+console.log('[Test 25] PresentationStore Cue Workflow Abort Handling');
+{
+  const store = new PresentationStore();
+  const vid = makeMockAsset('vid_abort', 'video', 'abort.mp4', { durationSec: 5.0 });
+  const ctrl = new AbortController();
+  ctrl.abort();
+
+  await assert.rejects(
+    () => store.applyVideoCuePointsWorkflow(vid, [0, 2.5, 5.0], { signal: ctrl.signal }),
+    (err) => MediaValidator.isAbortError(err)
+  );
+
+  console.log('✓ PresentationStore AbortError propagation passed');
+}
+
+// 26. Self-Contained .mpres Bundle ZIP Roundtrip & Deduplicated Asset Extraction
+console.log('[Test 26] Self-Contained .mpres Bundle Roundtrip');
+{
+  const fakePng = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4]);
+  const fakeMp4 = new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112, 109, 112, 52, 50, 99, 88]);
+  const vidFile = new File([fakeMp4], 'shared_reel.mp4', { type: 'video/mp4' });
+  const imgFile1 = new File([fakePng], 'توقف_1.png', { type: 'image/png' });
+  const imgFile2 = new File([fakePng], 'توقف_2.png', { type: 'image/png' });
+
+  const sharedVid = makeMockAsset('vid_bundle', 'video', 'shared_reel.mp4', {
+    durationSec: 12.0,
+    rawFile: vidFile,
+    fileSize: fakeMp4.byteLength,
+  });
+
+  const s1 = createSlideNode(
+    makeMockAsset('img_b1', 'image', 'توقف_1.png', {
+      rawFile: imgFile1,
+      fileSize: fakePng.byteLength,
+      width: 1920,
+      height: 1080,
+      sourceVideoId: sharedVid.id,
+      sourceTimeSec: 0,
+    }),
+    0,
+    'cut',
+    0
+  );
+  s1.title = 'شريحة البداية';
+  s1.transitionToNext = {
+    ...createDefaultTransition('cut', sharedVid, 0),
+    startTimeSec: 0,
+    endTimeSec: 6.0,
+  };
+
+  const s2 = createSlideNode(
+    makeMockAsset('img_b2', 'image', 'توقف_2.png', {
+      rawFile: imgFile2,
+      fileSize: fakePng.byteLength,
+      width: 1920,
+      height: 1080,
+      sourceVideoId: sharedVid.id,
+      sourceTimeSec: 6.0,
+    }),
+    1,
+    'cut',
+    0
+  );
+  s2.title = 'شريحة النهاية';
+  s2.transitionToNext = {
+    ...createDefaultTransition('cut', sharedVid, 0),
+    startTimeSec: 6.0,
+    endTimeSec: 12.0,
+  };
+
+  const project = createEmptyProject();
+  project.id = 'proj_bundle';
+  project.title = 'عرض الحزمة الكاملة';
+  project.slides = [s1, s2];
+
+  const bundleBytes = await ProjectSerializer.buildBundleBytes(project);
+  assert.equal(ProjectSerializer.isZipBundleBytes(bundleBytes), true, 'Bundle must start with ZIP magic PK');
+
+  const parsed = ProjectSerializer.parseProjectBytes(bundleBytes);
+  assert.equal(parsed.format, 'mpres-bundle');
+  assert.equal(parsed.projectData.title, 'عرض الحزمة الكاملة');
+  assert.equal(parsed.imageAssets.size, 2);
+  assert.equal(parsed.videoAssets.size, 1, 'Shared video must be deduplicated to 1 entry inside .mpres bundle');
+
+  const firstImgEntry = Array.from(parsed.imageAssets.values())[0];
+  assert.equal(firstImgEntry.fileName, 'توقف_1.png');
+  assert.deepEqual(Array.from(firstImgEntry.bytes), Array.from(fakePng));
+
+  const videoEntry = Array.from(parsed.videoAssets.values())[0];
+  assert.equal(videoEntry.fileName, 'shared_reel.mp4');
+  assert.deepEqual(Array.from(videoEntry.bytes), Array.from(fakeMp4));
+
+  // Verify legacy plain JSON still parses cleanly via parseProjectBytes
+  const legacyBytes = new TextEncoder().encode(
+    JSON.stringify(ProjectSerializer.buildManifestObject(project))
+  );
+  const parsedLegacy = ProjectSerializer.parseProjectBytes(legacyBytes);
+  assert.equal(parsedLegacy.format, 'manifest-json');
+  assert.equal(parsedLegacy.projectData.title, 'عرض الحزمة الكاملة');
+
+  console.log('✓ Self-contained .mpres bundle & legacy JSON roundtrip passed');
+}
+
+// 27. Electron Argv Helper for Double-Click File Launch & Single-Instance
+console.log('[Test 27] Electron argvHelper extractProjectPathFromArgv');
+{
+  const require = createRequire(import.meta.url);
+  const { extractProjectPathFromArgv } = require('../electron/argvHelper.cjs');
+
+  const fakeFiles = new Set([
+    path.resolve('C:\\Demos\\deck.mpres'),
+    path.resolve('C:\\Demos\\legacy.mpres.json'),
+    path.resolve('app\\package.json'),
+  ]);
+
+  const mockOpts = {
+    appPath: path.resolve('app'),
+    existsSync: (p: string) => fakeFiles.has(path.resolve(p)) || path.resolve(p) === path.resolve('app'),
+    statSync: (p: string) => ({ isFile: () => fakeFiles.has(path.resolve(p)) }),
+  };
+
+  assert.equal(
+    extractProjectPathFromArgv(['Motion Presentation Studio.exe', '--flag', 'C:\\Demos\\deck.mpres'], mockOpts),
+    path.resolve('C:\\Demos\\deck.mpres')
+  );
+  assert.equal(
+    extractProjectPathFromArgv(['electron.exe', '.', 'C:\\Demos\\legacy.mpres.json'], mockOpts),
+    path.resolve('C:\\Demos\\legacy.mpres.json')
+  );
+  assert.equal(
+    extractProjectPathFromArgv(['electron.exe', '.', 'app\\package.json'], mockOpts),
+    null,
+    'Must ignore package.json'
+  );
+  assert.equal(
+    extractProjectPathFromArgv(['Motion Presentation Studio.exe', '--inspect'], mockOpts),
+    null
+  );
+
+  console.log('✓ Electron argvHelper project file detection passed');
+}
+
+// 28. Test extractFrameSignature & compareFrameSignatures localized 10% UI card sensitivity
+console.log('[Test 28a] extractFrameSignature & compareFrameSignatures localized UI sensitivity');
+{
+  const w = 160;
+  const h = 90;
+  const makeFrame = (withCard: boolean): Uint8ClampedArray => {
+    const rgba = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = (y * w + x) * 4;
+        // Uniform dark slate background
+        let r = 18;
+        let g = 22;
+        let b = 34;
+        // Localized ~5.5% UI card (36x22 out of 160x90 = 792/14400 = 5.5%)
+        if (withCard && x >= 98 && x < 134 && y >= 50 && y < 72) {
+          r = 56;
+          g = 189;
+          b = 248;
+          if (x >= 102 && x < 126 && y >= 55 && y < 61) {
+            r = 248;
+            g = 250;
+            b = 252;
+          }
+        }
+        rgba[idx] = r;
+        rgba[idx + 1] = g;
+        rgba[idx + 2] = b;
+        rgba[idx + 3] = 255;
+      }
+    }
+    return rgba;
+  };
+
+  const sigA = extractFrameSignature(makeFrame(false), w, h);
+  const sigB = extractFrameSignature(makeFrame(true), w, h);
+
+  assert.equal(sigA.width, w);
+  assert.equal(sigA.height, h);
+  assert.equal(sigA.blockLumaMean.length, 64);
+  assert.equal(sigA.hist.length, 48);
+
+  const selfCmp = compareFrameSignatures(sigA, sigA);
+  assert.ok(selfCmp.motionVelocity < 1e-6, 'Identical frame comparison must be ~0');
+  assert.ok(selfCmp.cutScore < 1e-6, 'Identical frame cutScore must be ~0');
+
+  const cardCmp = compareFrameSignatures(sigA, sigB);
+  assert.ok(cardCmp.globalLumaMad < 0.05, `Expected small global Luma MAD (<0.05), got ${cardCmp.globalLumaMad}`);
+  assert.ok(cardCmp.activeBlockScore > 0.1, `Expected strong activeBlockScore, got ${cardCmp.activeBlockScore}`);
+  assert.ok(cardCmp.ssimDissimilarity > 0.03, `Expected measurable SSIM dissimilarity, got ${cardCmp.ssimDissimilarity}`);
+  assert.ok(cardCmp.edgeChangeScore > 0.1, `Expected strong ECR/edgeChangeScore, got ${cardCmp.edgeChangeScore}`);
+  assert.ok(cardCmp.motionVelocity > 0.08, `Expected strong motionVelocity >0.08 on localized 5.5% card change, got ${cardCmp.motionVelocity}`);
+  console.log('✓ extractFrameSignature & compareFrameSignatures localized sensitivity passed');
+}
+
+// 29. Test SmartPairer.analyzeMotionSignals short 0.20s plateaus, kinetic velocity-valley & inferSegmentEasings
+console.log('[Test 28b] SmartPairer.analyzeMotionSignals short plateaus, velocity-valley & easing inference');
+{
+  const dt = 0.07;
+  const durationSec = 6.3;
+  const n = Math.round(durationSec / dt) + 1;
+  const sampleTimes: number[] = [];
+  const rawVelocity: number[] = [];
+  const effectiveMotion: number[] = [];
+  const cutScores: number[] = [];
+
+  for (let i = 0; i < n; i++) {
+    const t = Number((i * dt).toFixed(3));
+    sampleTimes.push(t);
+    cutScores.push(0.01);
+
+    let v = 0.001;
+    if (t > 0.1 && t <= 1.4) {
+      // Ease-out burst settling cleanly around t=1.4s
+      const u = (t - 0.1) / 1.3;
+      v = Math.max(0.02, 0.36 * (1 - u * 0.85));
+    } else if (t > 1.4 && t <= 1.64) {
+      // Short 0.24s plateau (~3-4 samples)
+      v = 0.001;
+    } else if (t > 1.64 && t <= 3.1) {
+      // Ramp up -> bell burst settling around t=3.1s
+      const u = (t - 1.64) / 1.46;
+      v = 0.32 * Math.sin(u * Math.PI);
+    } else if (t > 3.1 && t <= 3.35) {
+      // Short 0.25s plateau
+      v = 0.001;
+    } else if (t > 3.35 && t <= 5.6) {
+      // Kinetic wave: fast [3.4..4.25], sharp velocity valley at 4.55s (non-zero ~0.045, no pause plateau), fast [4.8..5.55]
+      if (t >= 4.42 && t <= 4.68) {
+        v = 0.042;
+      } else {
+        v = 0.31;
+      }
+    } else if (t > 5.6) {
+      // Final rest
+      v = 0.001;
+    }
+
+    rawVelocity.push(v);
+    effectiveMotion.push(v);
+  }
+
+  const analyzed = SmartPairer.analyzeMotionSignals({
+    sampleTimes,
+    rawVelocity,
+    effectiveMotion,
+    cutScores,
+    durationSec,
+    sensitivity: 'medium',
+  });
+
+  const plateauCues = analyzed.candidates.filter((c) => c.kind === 'pause-settle');
+  const valleyCues = analyzed.candidates.filter((c) => c.kind === 'velocity-valley');
+
+  assert.ok(plateauCues.length >= 2, `Expected >=2 short pause-settle cues, got ${plateauCues.length}`);
+  assert.ok(
+    plateauCues.some((c) => Math.abs(c.timeSec - 1.52) < 0.25),
+    `Expected short plateau cue near ~1.52s in [${analyzed.cueTimesSec.join(', ')}]`
+  );
+  assert.ok(
+    plateauCues.some((c) => Math.abs(c.timeSec - 3.22) < 0.25),
+    `Expected short plateau cue near ~3.22s in [${analyzed.cueTimesSec.join(', ')}]`
+  );
+  assert.ok(
+    valleyCues.some((c) => Math.abs(c.timeSec - 4.55) < 0.25),
+    `Expected kinetic velocity-valley near ~4.55s in [${analyzed.cueTimesSec.join(', ')}]`
+  );
+  assert.ok(analyzed.recommendedEasings && analyzed.recommendedEasings.length === analyzed.cueTimesSec.length - 1);
+  assert.equal(analyzed.recommendedEasings![0], 'ease-out', 'First ease-out burst must infer ease-out');
+  console.log('✓ SmartPairer.analyzeMotionSignals short plateaus, velocity-valley & easing inference passed');
+}
+
+// 30. Test SmartPairer.analyzeMotionSignals rolling-window adaptive scene-cut detection
+console.log('[Test 28c] SmartPairer.analyzeMotionSignals adaptive rolling-window scene-cut detection');
+{
+  const dt = 0.08;
+  const durationSec = 8.0;
+  const n = Math.round(durationSec / dt) + 1;
+  const sampleTimes: number[] = [];
+  const rawVelocity: number[] = [];
+  const effectiveMotion: number[] = [];
+  const cutScores: number[] = [];
+
+  for (let i = 0; i < n; i++) {
+    const t = Number((i * dt).toFixed(3));
+    sampleTimes.push(t);
+    // Steady gentle camera pan across whole video (~0.06), noisy elevated plateau [3.6..4.5] (~0.17)
+    let vel = t >= 3.6 && t <= 4.5 ? 0.16 : 0.06;
+    let cut = t >= 3.6 && t <= 4.5 ? 0.17 : 0.05;
+
+    // Sharp hard scene cuts at t=2.40s and t=5.76s
+    if (Math.abs(t - 2.4) < 0.05 || Math.abs(t - 5.76) < 0.05) {
+      vel = 0.62;
+      cut = 0.68;
+    }
+
+    rawVelocity.push(vel);
+    effectiveMotion.push(vel);
+    cutScores.push(cut);
+  }
+
+  const analyzed = SmartPairer.analyzeMotionSignals({
+    sampleTimes,
+    rawVelocity,
+    effectiveMotion,
+    cutScores,
+    durationSec,
+    sensitivity: 'medium',
+  });
+
+  const cuts = analyzed.candidates.filter((c) => c.kind === 'scene-cut');
+  assert.ok(
+    cuts.some((c) => Math.abs(c.timeSec - 2.4) < 0.2),
+    `Expected hard scene cut near 2.4s in [${analyzed.cueTimesSec.join(', ')}]`
+  );
+  assert.ok(
+    cuts.some((c) => Math.abs(c.timeSec - 5.76) < 0.2),
+    `Expected hard scene cut near 5.76s in [${analyzed.cueTimesSec.join(', ')}]`
+  );
+  assert.equal(
+    cuts.filter((c) => c.timeSec >= 3.5 && c.timeSec <= 4.6).length,
+    0,
+    'Steady elevated baseline window [3.6..4.5] must NOT false-trigger scene cut'
+  );
+  assert.ok(analyzed.recommendedEasings?.includes('step'), 'Hard scene cut segment should recommend step easing');
+  console.log('✓ SmartPairer.analyzeMotionSignals adaptive rolling-window scene-cut detection passed');
+}
+
+// 31. Test SmartPairer.analyzeMotionSignals perceptual content deduplication
+console.log('[Test 28d] SmartPairer.analyzeMotionSignals perceptual content deduplication');
+{
+  const w = 64;
+  const h = 36;
+  const makeBlockSig = (variant: 'slide1' | 'slide1Noise' | 'slide2' | 'slide3') => {
+    const rgba = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = (y * w + x) * 4;
+        let r = 20;
+        let g = 25;
+        let b = 40;
+        if (variant === 'slide1' || variant === 'slide1Noise') {
+          if (x >= 8 && x < 34 && y >= 6 && y < 26) {
+            r = 56;
+            g = 189;
+            b = 248;
+          }
+          // Subtle 1-pixel LSB flicker for compression grain simulation
+          if (variant === 'slide1Noise' && x === 10 && y === 10) {
+            r += 2;
+          }
+        } else if (variant === 'slide2') {
+          r = 240;
+          g = 245;
+          b = 250;
+          if (x >= 20 && x < 56 && y >= 8 && y < 30) {
+            r = 245;
+            g = 158;
+            b = 11;
+          }
+        } else {
+          r = 12;
+          g = 48;
+          b = 38;
+          if (x >= 10 && x < 52 && y >= 5 && y < 28) {
+            r = 16;
+            g = 185;
+            b = 129;
+          }
+        }
+        rgba[idx] = r;
+        rgba[idx + 1] = g;
+        rgba[idx + 2] = b;
+        rgba[idx + 3] = 255;
+      }
+    }
+    return extractFrameSignature(rgba, w, h);
+  };
+
+  const s1 = makeBlockSig('slide1');
+  const s1Noise = makeBlockSig('slide1Noise');
+  const s2 = makeBlockSig('slide2');
+  const s3 = makeBlockSig('slide3');
+
+  const dt = 0.1;
+  const durationSec = 7.0;
+  const n = Math.round(durationSec / dt) + 1;
+  const sampleTimes: number[] = [];
+  const effectiveMotion: number[] = [];
+  const cutScores: number[] = [];
+  const signatures: ReturnType<typeof extractFrameSignature>[] = [];
+
+  for (let i = 0; i < n; i++) {
+    const t = Number((i * dt).toFixed(2));
+    sampleTimes.push(t);
+    cutScores.push(0.01);
+
+    if (t < 1.0) {
+      effectiveMotion.push(0.32);
+      signatures.push(s1);
+    } else if (t <= 1.8) {
+      effectiveMotion.push(0.001);
+      signatures.push(s1);
+    } else if (t < 2.2) {
+      // Mild cursor/noise bump (<3x stillThreshold) returning to virtually identical slide1Noise!
+      effectiveMotion.push(0.025);
+      signatures.push(s1Noise);
+    } else if (t <= 3.1) {
+      effectiveMotion.push(0.001);
+      signatures.push(s1Noise);
+    } else if (t < 4.2) {
+      effectiveMotion.push(0.38);
+      signatures.push(s2);
+    } else if (t <= 5.0) {
+      effectiveMotion.push(0.001);
+      signatures.push(s2);
+    } else if (t < 6.0) {
+      effectiveMotion.push(0.36);
+      signatures.push(s3);
+    } else {
+      effectiveMotion.push(0.001);
+      signatures.push(s3);
+    }
+  }
+
+  const analyzed = SmartPairer.analyzeMotionSignals({
+    sampleTimes,
+    effectiveMotion,
+    cutScores,
+    durationSec,
+    signatures,
+    sensitivity: 'medium',
+  });
+
+  const interiorCues = analyzed.cueTimesSec.filter((t) => t > 0.2 && t < durationSec - 0.2);
+  const earlyDuplicateCount = interiorCues.filter((t) => t >= 0.8 && t <= 3.3).length;
+  assert.equal(
+    earlyDuplicateCount,
+    1,
+    `Unchanged content plateau [2.2..3.1] must be deduplicated cleanly; got interior cues [${interiorCues.join(', ')}]`
+  );
+  assert.ok(
+    interiorCues.some((t) => t >= 4.0 && t <= 5.2),
+    `Expected distinct Slide 2 stop near 4.2-5.0s in [${interiorCues.join(', ')}]`
+  );
+  console.log('✓ SmartPairer.analyzeMotionSignals perceptual content deduplication passed');
+}
+
+// --- INTEGRATED 4-TIER E2E TEST SUITES (F1-F9) ---
+console.log('\n--- RUNNING 4-TIER E2E TEST SUITES (F1-F9) ---');
+
+let totalE2EPassed = 0;
+let totalE2EFailed = 0;
+
+/**
+ * Executes an asynchronous test suite with strict assertion and integrity checks.
+ * Enforces fail-fast semantics: any test failure or invalid return structure
+ * immediately throws an AssertionError, halting execution and terminating with a non-zero exit code.
+ */
+async function runSuiteStrict(
+  suiteName: string,
+  runnerFn: () => Promise<{ passed: number; failed: number }>
+): Promise<{ passed: number; failed: number }> {
+  const result = await runnerFn();
+
+  assert.ok(
+    result && typeof result === 'object',
+    `Suite "${suiteName}" must return a valid results object, got: ${JSON.stringify(result)}`
+  );
+  assert.equal(
+    typeof result.passed,
+    'number',
+    `Suite "${suiteName}" result.passed must be a number`
+  );
+  assert.equal(
+    typeof result.failed,
+    'number',
+    `Suite "${suiteName}" result.failed must be a number`
+  );
+  assert.ok(
+    result.passed > 0,
+    `Suite "${suiteName}" must execute at least 1 passing test (got passed: ${result.passed}, failed: ${result.failed})`
+  );
+  assert.equal(
+    result.failed,
+    0,
+    `Suite "${suiteName}" FAILED with ${result.failed} failure(s) (passed: ${result.passed})`
+  );
+
+  totalE2EPassed += result.passed;
+  console.log(`✓ Suite "${suiteName}" passed strictly (${result.passed} passed, 0 failed)`);
+  return result;
+}
+
+// 1. Tier 1 & Tier 2: Presentation Controls (F1, F2, F3, F4)
+console.log('\n[Test 28] Presentation Controls & Selection Synchronization Suite (F1, F2, F3, F4)');
+const { runPresentationControlsTests } = await import('../test/presentation-controls.test');
+const presRes = await runSuiteStrict('Presentation Controls (F1-F4)', runPresentationControlsTests);
+
+// 2. Tier 1 & Tier 2: Keyframe Timeline (F5, F6, F7, F8)
+console.log('\n[Test 29] Keyframe Timeline & Video Slicing Suite (F5, F6, F7, F8)');
+const { runKeyframeTimelineTests } = await import('../test/keyframe-timeline.test');
+const timeRes = await runSuiteStrict('Keyframe Timeline (F5-F8)', runKeyframeTimelineTests);
+
+// 3. Tier 1 & Tier 2: Build Integrity (F9)
+console.log('\n[Test 30] Build Integrity & Environment Suite (F9)');
+const { runBuildIntegrityTests } = await import('../test/build-integrity.test');
+const buildRes = await runSuiteStrict('Build Integrity (F9)', runBuildIntegrityTests);
+
+// 4. Tier 3: Pairwise Interactions (T3-PAIR-01 through T3-PAIR-12)
+console.log('\n[Test 31] Pairwise Cross-Feature Interactions Suite (Tier 3)');
+const { runPairwiseInteractionTests } = await import('../test/pairwise-interactions.test');
+const pairRes = await runSuiteStrict('Pairwise Interactions', runPairwiseInteractionTests);
+
+// 5. Tier 4: Real-World Scenarios (T4-SCEN-01 through T4-SCEN-05)
+console.log('\n[Test 32] Real-World End-to-End Scenarios Suite (Tier 4)');
+const { runE2ERealWorldTests } = await import('../test/e2e-realworld.test');
+const scenRes = await runSuiteStrict('Real-World Scenarios', runE2ERealWorldTests);
+
+const legacyPassed = 31;
+const grandTotalPassed = legacyPassed + totalE2EPassed;
+const grandTotalTests = legacyPassed + totalE2EPassed + totalE2EFailed;
+
+console.log('\n======================================================');
+console.log('             COMPREHENSIVE TEST SUITE SUMMARY          ');
+console.log('======================================================');
+console.log(`[Legacy] Verification Suite: ${legacyPassed}/31 Passed`);
+console.log(`[Tier 1 & 2] Presentation Controls (F1-F4): ${presRes.passed}/${presRes.passed + presRes.failed} Passed`);
+console.log(`[Tier 1 & 2] Keyframe Timeline (F5-F8): ${timeRes.passed}/${timeRes.passed + timeRes.failed} Passed`);
+console.log(`[Tier 1 & 2] Build Integrity (F9): ${buildRes.passed}/${buildRes.passed + buildRes.failed} Passed`);
+console.log(`[Tier 3] Pairwise Interactions: ${pairRes.passed}/${pairRes.passed + pairRes.failed} Passed`);
+console.log(`[Tier 4] Real-World Scenarios: ${scenRes.passed}/${scenRes.passed + scenRes.failed} Passed`);
+console.log('------------------------------------------------------');
+console.log(`GRAND TOTAL: ${grandTotalPassed}/${grandTotalTests} Passed (${Math.round((grandTotalPassed / grandTotalTests) * 100)}%)`);
+console.log('======================================================\n');
+
+if (totalE2EFailed > 0) {
+  console.error(`FATAL: ${totalE2EFailed} test(s) failed in E2E suites.`);
+  process.exit(1);
+} else {
+  console.log('ALL TESTS PASSED CLEANLY (100%)!');
+  process.exit(0);
+}

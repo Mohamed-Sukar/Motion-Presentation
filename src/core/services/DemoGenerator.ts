@@ -1,6 +1,7 @@
 import { createSlideNode, generateId } from '../domain/defaults';
 import { FallbackTransitionStyle, MediaAsset, SlideNode } from '../domain/types';
 import { StagePlaybackEngine } from '../engine/StagePlaybackEngine';
+import { AppLanguage, getLanguage, t } from '../i18n';
 
 interface DemoSlideSpec {
   number: string;
@@ -15,12 +16,12 @@ interface DemoSlideSpec {
   orbY: number;
 }
 
-const DEMO_SPECS: DemoSlideSpec[] = [
+const DEMO_SPECS_AR: DemoSlideSpec[] = [
   {
     number: '01',
     badge: 'MOTION PRESENTATION ENGINE',
     title: 'شريحة المقدمة الرئيسية',
-    subtitle: 'اضغط المسافة (Space) أو السهم الأيمن لتشغيل فيديو الانتقال الحركي للشريحة التالية',
+    subtitle: 'اضغط المسافة أو السهم لتشغيل فيديو الانتقال الحركي للشريحة التالية',
     accentColor: '#38BDF8',
     secondaryColor: '#818CF8',
     bgStart: '#070B19',
@@ -32,7 +33,7 @@ const DEMO_SPECS: DemoSlideSpec[] = [
     number: '02',
     badge: 'ZERO-FLICKER TRANSITIONS',
     title: 'انتقال حركي بدون أي تقطيع',
-    subtitle: 'ينتقل الفيديو من الفريم الأخير للصورة الأولى إلى الفريم الأول للصورة الثانية بدقة 100%',
+    subtitle: 'ينتقل الفيديو من الإطار الأخير للصورة الأولى إلى الإطار الأول للصورة التالية بدقة 100%',
     accentColor: '#A855F7',
     secondaryColor: '#EC4899',
     bgStart: '#0F0720',
@@ -56,7 +57,7 @@ const DEMO_SPECS: DemoSlideSpec[] = [
     number: '04',
     badge: 'READY FOR LIVE STAGE',
     title: 'تحكم كامل أثناء العرض المباشر',
-    subtitle: 'وضع ملء الشاشة (F5)، التحكم في السرعة، التخطي الفوري، واستخراج الشرائح من الفيديو',
+    subtitle: 'وضع ملء الشاشة، التحكم في السرعة، التخطي الفوري، واستخراج الشرائح من الفيديو',
     accentColor: '#F59E0B',
     secondaryColor: '#EF4444',
     bgStart: '#180D05',
@@ -65,6 +66,61 @@ const DEMO_SPECS: DemoSlideSpec[] = [
     orbY: 0.62,
   },
 ];
+
+const DEMO_SPECS_EN: DemoSlideSpec[] = [
+  {
+    number: '01',
+    badge: 'MOTION PRESENTATION ENGINE',
+    title: 'Opening Title Keyframe',
+    subtitle: 'Press Space or Arrow Right to launch the motion transition to Slide 02',
+    accentColor: '#38BDF8',
+    secondaryColor: '#818CF8',
+    bgStart: '#070B19',
+    bgEnd: '#0F172A',
+    orbX: 0.25,
+    orbY: 0.35,
+  },
+  {
+    number: '02',
+    badge: 'ZERO-FLICKER TRANSITIONS',
+    title: 'Seamless Frame-Exact Motion',
+    subtitle: 'Bridges the final frame of Slide 01 to the opening frame of Slide 02 with pixel accuracy',
+    accentColor: '#A855F7',
+    secondaryColor: '#EC4899',
+    bgStart: '#0F0720',
+    bgEnd: '#1E1035',
+    orbX: 0.72,
+    orbY: 0.32,
+  },
+  {
+    number: '03',
+    badge: 'SMART MEDIA PIPELINE',
+    title: 'Smart Auto-Pairing Pipeline',
+    subtitle: 'Drop a folder of images and transition clips to pair and order them automatically',
+    accentColor: '#10B981',
+    secondaryColor: '#06B6D4',
+    bgStart: '#041318',
+    bgEnd: '#08262C',
+    orbX: 0.35,
+    orbY: 0.68,
+  },
+  {
+    number: '04',
+    badge: 'READY FOR LIVE STAGE',
+    title: 'Built for Live Stage Control',
+    subtitle: 'Fullscreen Presenter (F5), variable playback speed, instant skip & hold-cue slicing',
+    accentColor: '#F59E0B',
+    secondaryColor: '#EF4444',
+    bgStart: '#180D05',
+    bgEnd: '#271509',
+    orbX: 0.65,
+    orbY: 0.62,
+  },
+];
+
+function getDemoSpecs(lang: AppLanguage = getLanguage()): DemoSlideSpec[] {
+  return lang === 'en' ? DEMO_SPECS_EN : DEMO_SPECS_AR;
+}
 
 export class DemoGenerator {
   private static drawSlideFrame(
@@ -294,28 +350,29 @@ export class DemoGenerator {
     const width = 1280;
     const height = 720;
 
-    onProgress?.('جاري إنشاء صور الشرائح الثابتة...');
+    onProgress?.(t('core.demoProgressSlides'));
+    const specs = getDemoSpecs();
     const slideImages: MediaAsset[] = [];
 
-    for (let i = 0; i < DEMO_SPECS.length; i++) {
-      const spec = DEMO_SPECS[i];
+    for (let i = 0; i < specs.length; i++) {
+      const spec = specs[i];
       const imgAsset = await this.renderStaticSlideAsset(spec, i, width, height);
       slideImages.push(imgAsset);
     }
 
     const nodes: SlideNode[] = slideImages.map((img, i) => {
       const node = createSlideNode(img, i, 'zoom-morph');
-      node.title = `${DEMO_SPECS[i].number} - ${DEMO_SPECS[i].title}`;
+      node.title = `${specs[i].number} - ${specs[i].title}`;
       return node;
     });
 
     // Generate real WebM motion transition videos between Slide[i] and Slide[i+1]
-    for (let i = 0; i < DEMO_SPECS.length - 1; i++) {
-      onProgress?.(`جاري رندرة فيديو الانتقال الحركي (${i + 1} ← ${i + 2})...`);
+    for (let i = 0; i < specs.length - 1; i++) {
+      onProgress?.(t('core.demoProgressVideo', { from: i + 1, to: i + 2 }));
       try {
         const { videoAsset, reverseFrames } = await this.recordMorphVideoAsset(
-          DEMO_SPECS[i],
-          DEMO_SPECS[i + 1],
+          specs[i],
+          specs[i + 1],
           i,
           width,
           height
@@ -477,7 +534,7 @@ export class DemoGenerator {
 
       recorder.onerror = () => {
         stream.getTracks().forEach((track) => track.stop());
-        reject(new Error('خطأ في تسجيل الفيديو الحركي التجريبي'));
+        reject(new Error(t('core.demoRecordError')));
       };
 
       recorder.start();
@@ -554,7 +611,7 @@ export class DemoGenerator {
         const image = new Image();
         image.crossOrigin = 'anonymous';
         image.onload = () => resolve(image);
-        image.onerror = () => reject(new Error('تعذر تحميل صورة الشريحة لتوليد الانتقال'));
+        image.onerror = () => reject(new Error(t('core.demoLoadSlideImgError')));
         image.src = objectUrl;
       });
     const [fromImage, toImage] = await Promise.all([
@@ -595,6 +652,24 @@ export class DemoGenerator {
       } else if (style === 'crossfade') {
         drawImage(fromImage, 0, 1, 1);
         drawImage(toImage, 0, 1, t);
+      } else if (style === 'wipe-reveal') {
+        drawImage(fromImage, 0, 1, 1);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, width * t, height);
+        ctx.clip();
+        drawImage(toImage, 0, 1, 1);
+        ctx.restore();
+      } else if (style === 'iris-spotlight') {
+        drawImage(fromImage, 0, 1, Math.max(0, 1 - t * 0.25));
+        const maxRadius = Math.hypot(width, height) * 0.55;
+        const radius = Math.max(1, maxRadius * t);
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(width / 2, height / 2, radius, 0, Math.PI * 2);
+        ctx.clip();
+        drawImage(toImage, 0, 1, 1);
+        ctx.restore();
       } else {
         drawImage(fromImage, 0, 1 + t * 0.14, 1 - t);
         drawImage(toImage, 0, 0.88 + t * 0.12, t);
@@ -675,7 +750,7 @@ export class DemoGenerator {
           reject(error);
           if (recorder.state !== 'inactive') recorder.stop();
         };
-        recorder.onerror = () => fail(new Error('خطأ في تسجيل فيديو الانتقال الحركي'));
+        recorder.onerror = () => fail(new Error(t('core.transRecordError')));
 
         let frameIndex = 0;
         const step = () => {
