@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/Mohamed-Sukar/Motion-Presentation/releases">
-    <img src="https://img.shields.io/badge/version-1.4.3-FF3D2E?style=for-the-badge&labelColor=0A0A0A" alt="Version 1.4.3" />
+    <img src="https://img.shields.io/badge/version-1.4.4-FF3D2E?style=for-the-badge&labelColor=0A0A0A" alt="Version 1.4.4" />
   </a>
   <img src="https://img.shields.io/badge/Windows-Desktop_App-18181B?style=for-the-badge&labelColor=0A0A0A&logo=windows&logoColor=FFFFFF" alt="Windows Desktop App" />
   <img src="https://img.shields.io/badge/UI-English_%26_Arabic-18181B?style=for-the-badge&labelColor=0A0A0A" alt="Bilingual UI: English and Arabic" />
